@@ -1,6 +1,5 @@
 #include "water_heater_controller.h"
 
-#include <algorithm>
 #include <cstring>
 
 #include "config.h"
@@ -16,8 +15,6 @@ namespace {
 
 constexpr char kTag[] = "HajAliI2C";
 constexpr uint8_t kSlaveAddress = 0x13;
-constexpr gpio_num_t kSdaPin = GPIO_NUM_17;
-constexpr gpio_num_t kSclPin = GPIO_NUM_8;
 constexpr uint8_t kCurrentTemperatureIndex = 0;
 constexpr uint8_t kTargetTemperatureIndex = 0;
 constexpr uint8_t kDefaultTargetTemperature = 50;
@@ -41,9 +38,10 @@ uint8_t g_txData[HajAliI2C::kDataSize] = {};
 bool g_receivedFrame = false;
 bool g_ready = false;
 
-bool IRAM_ATTR OnReceive(i2c_slave_dev_handle_t,
-                         const i2c_slave_rx_done_event_data_t* event,
-                         void*) {
+// ESP-IDF invokes these callbacks in ISR context. They only copy data and queue work.
+bool OnReceive(i2c_slave_dev_handle_t,
+               const i2c_slave_rx_done_event_data_t* event,
+               void*) {
     if (event == nullptr || event->buffer == nullptr || g_eventQueue == nullptr) {
         return false;
     }
@@ -51,7 +49,9 @@ bool IRAM_ATTR OnReceive(i2c_slave_dev_handle_t,
     I2CEvent queued{};
     queued.type = EventType::Receive;
     queued.length = event->length;
-    const size_t copyLength = std::min<size_t>(event->length, HajAliI2C::kDataSize);
+    const size_t copyLength = event->length < HajAliI2C::kDataSize
+                                  ? event->length
+                                  : HajAliI2C::kDataSize;
     std::memcpy(queued.data, event->buffer, copyLength);
 
     BaseType_t higherPriorityTaskWoken = pdFALSE;
@@ -59,9 +59,9 @@ bool IRAM_ATTR OnReceive(i2c_slave_dev_handle_t,
     return sent == pdTRUE && higherPriorityTaskWoken == pdTRUE;
 }
 
-bool IRAM_ATTR OnRequest(i2c_slave_dev_handle_t,
-                         const i2c_slave_request_event_data_t*,
-                         void*) {
+bool OnRequest(i2c_slave_dev_handle_t,
+               const i2c_slave_request_event_data_t*,
+               void*) {
     if (g_eventQueue == nullptr) {
         return false;
     }
@@ -91,7 +91,6 @@ void I2CWorker(void*) {
             std::memcpy(g_rxData, event.data, HajAliI2C::kDataSize);
             g_receivedFrame = true;
             taskEXIT_CRITICAL(&g_dataMux);
-
             ESP_LOGD(kTag, "Received 25-byte master frame");
         } else {
             uint8_t response[HajAliI2C::kDataSize];
@@ -100,7 +99,8 @@ void I2CWorker(void*) {
             taskEXIT_CRITICAL(&g_dataMux);
 
             uint32_t written = 0;
-            const esp_err_t err = i2c_slave_write(g_slave, response, sizeof(response), &written, 100);
+            const esp_err_t err =
+                i2c_slave_write(g_slave, response, sizeof(response), &written, 100);
             if (err != ESP_OK || written != sizeof(response)) {
                 ESP_LOGW(kTag, "I2C response write incomplete: err=%s, bytes=%lu",
                          esp_err_to_name(err), static_cast<unsigned long>(written));
@@ -128,17 +128,19 @@ bool Initialize() {
 
     const i2c_slave_config_t config = {
         .i2c_port = I2C_NUM_1,
-        .sda_io_num = kSdaPin,
-        .scl_io_num = kSclPin,
+        .sda_io_num = WATER_HEATER_I2C_SDA_GPIO,
+        .scl_io_num = WATER_HEATER_I2C_SCL_GPIO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .send_buf_depth = 64,
         .receive_buf_depth = 64,
         .slave_addr = kSlaveAddress,
         .addr_bit_len = I2C_ADDR_BIT_LEN_7,
         .intr_priority = 0,
-        .allow_pd = 0,
-        .enable_internal_pullup = 1,
-        .broadcast_en = 0,
+        .flags = {
+            .allow_pd = 0,
+            .enable_internal_pullup = 1,
+            .broadcast_en = 0,
+        },
     };
 
     esp_err_t err = i2c_new_slave_device(&config, &g_slave);
@@ -174,7 +176,8 @@ bool Initialize() {
 
     g_ready = true;
     ESP_LOGI(kTag, "I2C slave ready: address=0x%02X SDA=GPIO%d SCL=GPIO%d",
-             kSlaveAddress, static_cast<int>(kSdaPin), static_cast<int>(kSclPin));
+             kSlaveAddress, static_cast<int>(WATER_HEATER_I2C_SDA_GPIO),
+             static_cast<int>(WATER_HEATER_I2C_SCL_GPIO));
     return true;
 }
 
