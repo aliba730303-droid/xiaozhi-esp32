@@ -27,7 +27,6 @@
 
 #endif
 
-
 #define BUILTIN_LED_GPIO        GPIO_NUM_48
 #define BOOT_BUTTON_GPIO        GPIO_NUM_0
 #define TOUCH_BUTTON_GPIO       GPIO_NUM_47
@@ -52,6 +51,10 @@
 #define DISPLAY_MIRROR_X true
 #define DISPLAY_MIRROR_Y true
 
+// Separate I2C bus for the LILYGO master (water-heater controller).
+// These pins do not overlap the OLED, audio, buttons, LED, or lamp GPIO.
+#define WATER_HEATER_I2C_SDA_GPIO GPIO_NUM_17
+#define WATER_HEATER_I2C_SCL_GPIO GPIO_NUM_8
 
 // A MCP Test: Control a lamp
 #define LAMP_GPIO GPIO_NUM_18
