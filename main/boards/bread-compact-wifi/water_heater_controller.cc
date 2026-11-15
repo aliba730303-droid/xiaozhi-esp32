@@ -139,7 +139,6 @@ bool Initialize() {
         .flags = {
             .allow_pd = 0,
             .enable_internal_pullup = 1,
-            .broadcast_en = 0,
         },
     };
 
@@ -245,8 +244,9 @@ void InitializeWaterHeaterTools() {
             if (!HajAliI2C::SetTargetTemperature(static_cast<uint8_t>(temperature))) {
                 return std::string("Temperature must be between 30 and 60 degrees Celsius.");
             }
-            return std::string("Requested water temperature set to ") +
-                   std::to_string(temperature) + " degrees Celsius.";
+            return std::string("Requested water temperature ") +
+                   std::to_string(temperature) +
+                   " degrees Celsius is queued. The controller receives it on its next I2C read.";
         });
 
     mcp.AddTool(
