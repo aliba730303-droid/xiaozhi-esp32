@@ -1,0 +1,27 @@
+
+name: Build Haj Ali ESP32-S3
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          python scripts/build.py bread-compact-wifi --name bread-compact-wifi
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: hajali-firmware
+          path: build/merged-binary.bin
