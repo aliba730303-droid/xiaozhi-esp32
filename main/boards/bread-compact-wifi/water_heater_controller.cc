@@ -16,10 +16,10 @@ namespace {
 constexpr char kTag[] = "HajAliI2C";
 constexpr uint8_t kSlaveAddress = 0x13;
 constexpr uint8_t kCurrentTemperatureIndex = 0;
-constexpr uint8_t kTargetTemperatureIndex = 0;
+constexpr uint8_t kTargetTemperatureIndex = HajAliI2C::kTxTargetTemperature;
 constexpr uint8_t kDefaultTargetTemperature = 50;
-constexpr uint8_t kMinimumTemperature = 30;
-constexpr uint8_t kMaximumTemperature = 60;
+constexpr uint8_t kMinimumTemperature = 10;
+constexpr uint8_t kMaximumTemperature = 90;
 
 enum class EventType : uint8_t { Receive, Request };
 
@@ -106,6 +106,10 @@ void I2CWorker(void*) {
             if (err != ESP_OK || written != sizeof(response)) {
                 ESP_LOGW(kTag, "I2C response write incomplete: err=%s, bytes=%lu",
                          esp_err_to_name(err), static_cast<unsigned long>(written));
+            } else {
+                ESP_LOGI(kTag, "TX frame sent: 25 bytes, target=%u, marker=%u",
+                         response[HajAliI2C::kTxTargetTemperature],
+                         response[HajAliI2C::kTxFrameMarker]);
             }
         }
     }
@@ -132,6 +136,8 @@ bool Initialize() {
 
     ESP_LOGE(kTag, "INIT_STEP=QUEUE_OK");
     g_txData[kTargetTemperatureIndex] = kDefaultTargetTemperature;
+    // Fixed frame marker requested by the master-side protocol.
+    g_txData[HajAliI2C::kTxFrameMarker] = HajAliI2C::kTxFrameMarkerValue;
 
     const i2c_slave_config_t config = {
         .i2c_port = I2C_NUM_0,
@@ -244,16 +250,16 @@ void InitializeWaterHeaterTools() {
     auto& mcp = McpServer::GetInstance();
     mcp.AddTool(
         "water_heater.set_temperature",
-        "Set the requested water temperature in Celsius. Allowed range is 30 to 60 degrees. "
+        "Set the requested water temperature in Celsius. Allowed range is 10 to 90 degrees. "
         "Use this when the user asks to raise, lower, or set the water heater temperature.",
-        PropertyList({Property("temperature", kPropertyTypeInteger, 50, 30, 60)}),
+        PropertyList({Property("temperature", kPropertyTypeInteger, 50, 10, 90)}),
         [](const PropertyList& properties) -> ReturnValue {
             const int temperature = properties["temperature"].value<int>();
             if (!HajAliI2C::IsReady()) {
                 return std::string("Water-heater I2C link is not ready; the temperature command was not sent.");
             }
             if (!HajAliI2C::SetTargetTemperature(static_cast<uint8_t>(temperature))) {
-                return std::string("Temperature must be between 30 and 60 degrees Celsius.");
+                return std::string("Temperature must be between 10 and 90 degrees Celsius.");
             }
             return std::string("Requested water temperature ") +
                    std::to_string(temperature) +
