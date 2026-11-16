@@ -12,9 +12,7 @@
 #include "text_glyph_payload.h"
 #include "websocket_protocol.h"
 
-#if CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI
 #include "boards/bread-compact-wifi/water_heater_controller.h"
-#endif
 
 #include <driver/gpio.h>
 #include <esp_log.h>
@@ -124,15 +122,14 @@ void Application::Initialize() {
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
 
-#if CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI
-    // Board peripherals and board-specific MCP tools are initialized only after
-    // the application and MCP server are fully initialized, not in the board constructor.
+// This firmware workflow targets bread-compact-wifi exclusively. Keep this
+    // initialization unconditional so a missing Kconfig macro cannot silently
+    // compile out the water-heater I2C slave.
     ESP_LOGW(TAG, "HAJALI_I2C: APP_INIT_BEGIN");
     const bool waterHeaterI2cReady = HajAliI2C::Initialize();
     ESP_LOGW(TAG, "HAJALI_I2C: APP_INIT_END result=%s",
              waterHeaterI2cReady ? "READY" : "FAILED");
     InitializeWaterHeaterTools();
-#endif
     // Registration is complete here, so this is the only place the whole inventory exists.
     // It is logged because a server that accepts a bounded number of tools drops the rest
     // quietly: the only sign on this device was an alert at boot and a sad face, which is
