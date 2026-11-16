@@ -37,6 +37,8 @@ constexpr uint8_t kTxFrameMarkerValue = 116;
 bool Initialize();
 bool IsReady();
 bool SetTargetTemperature(uint8_t temperature);
+bool SetTxValue(uint8_t index, uint8_t value, uint8_t minimum, uint8_t maximum);
+uint8_t GetTxValue(uint8_t index);
 uint8_t GetCurrentTemperature();
 uint8_t GetTargetTemperature();
 bool HasReceivedMasterFrame();
