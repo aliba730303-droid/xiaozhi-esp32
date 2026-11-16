@@ -164,9 +164,11 @@ public:
 
         // Start the I2C slave independently of MCP tool registration so the
         // serial log clearly confirms whether the bus was initialized.
-        ESP_LOGI(TAG, "Starting HajAli I2C slave initialization");
-        if (!HajAliI2C::Initialize()) {
-            ESP_LOGE(TAG, "HajAli I2C slave initialization failed");
+        ESP_LOGI(TAG, "HAJALI_I2C: BEGIN");
+        const bool i2cReady = HajAliI2C::Initialize();
+        ESP_LOGI(TAG, "HAJALI_I2C: INIT_RESULT=%s", i2cReady ? "READY" : "FAILED");
+        if (!i2cReady) {
+            ESP_LOGE(TAG, "HAJALI_I2C: Check the preceding error for the failure reason");
         }
 
         InitializeTools();
