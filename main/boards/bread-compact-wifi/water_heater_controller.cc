@@ -203,6 +203,26 @@ bool IsReady() {
     return g_ready;
 }
 
+bool SetTxValue(uint8_t index, uint8_t value, uint8_t minimum, uint8_t maximum) {
+    if (index >= kDataSize || index == kTxFrameMarker || value < minimum || value > maximum) {
+        return false;
+    }
+    taskENTER_CRITICAL(&g_dataMux);
+    g_txData[index] = value;
+    taskEXIT_CRITICAL(&g_dataMux);
+    ESP_LOGI(kTag, "TX byte[%u] updated to %u", index, value);
+    return true;
+}
+
+uint8_t GetTxValue(uint8_t index) {
+    if (index >= kDataSize) return 0;
+    uint8_t value;
+    taskENTER_CRITICAL(&g_dataMux);
+    value = g_txData[index];
+    taskEXIT_CRITICAL(&g_dataMux);
+    return value;
+}
+
 bool SetTargetTemperature(uint8_t temperature) {
     if (temperature < kMinimumTemperature || temperature > kMaximumTemperature) {
         return false;
@@ -265,6 +285,84 @@ void InitializeWaterHeaterTools() {
                    std::to_string(temperature) +
                    " degrees Celsius is queued. The controller receives it on its next I2C read.";
         });
+
+
+    // Register each home control as an actual MCP tool. Each operation updates
+    // the corresponding byte in the 25-byte I2C frame.
+    auto addBinaryControl = [&mcp](const char* toolPrefix, const char* label, uint8_t index) {
+        const std::string onName = std::string(toolPrefix) + ".turn_on";
+        const std::string offName = std::string(toolPrefix) + ".turn_off";
+        const std::string stateName = std::string(toolPrefix) + ".get_state";
+        const std::string onDescription = std::string("Turn on ") + label + " and set its I2C status byte to 1.";
+        const std::string offDescription = std::string("Turn off ") + label + " and set its I2C status byte to 0.";
+        const std::string stateDescription = std::string("Read the current requested state of ") + label + ".";
+        mcp.AddTool(onName, onDescription, PropertyList(),
+            [index](const PropertyList&) -> ReturnValue {
+                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
+                HajAliI2C::SetTxValue(index, 1, 0, 1);
+                return true;
+            });
+        mcp.AddTool(offName, offDescription, PropertyList(),
+            [index](const PropertyList&) -> ReturnValue {
+                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
+                HajAliI2C::SetTxValue(index, 0, 0, 1);
+                return true;
+            });
+        mcp.AddTool(stateName, stateDescription, PropertyList(),
+            [index](const PropertyList&) -> ReturnValue {
+                return std::string("{\\"value\\":") + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
+            });
+    };
+
+    auto addNumericControl = [&mcp](const char* toolName, const char* description,
+                                    const char* propertyName, uint8_t index,
+                                    int defaultValue, int minimum, int maximum) {
+        mcp.AddTool(toolName, description,
+            PropertyList({Property(propertyName, kPropertyTypeInteger, defaultValue, minimum, maximum)}),
+            [index, minimum, maximum, propertyName](const PropertyList& properties) -> ReturnValue {
+                const int value = properties[propertyName].value<int>();
+                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
+                if (value < minimum || value > maximum ||
+                    !HajAliI2C::SetTxValue(index, static_cast<uint8_t>(value),
+                                           static_cast<uint8_t>(minimum), static_cast<uint8_t>(maximum))) {
+                    return std::string("Value is outside the allowed range.");
+                }
+                return std::string("Value updated to ") + std::to_string(value) +
+                       ". It will be sent to the master on its next I2C read.";
+            });
+    };
+
+    addBinaryControl("home.heating_element", "the water heater heating element", kTxHeatingElement);
+    addNumericControl("home.set_operating_mode",
+        "Set the water heater operating mode: 0=High Performance, 1=Smart Mode, 2=Economy, 3=Low Performance.",
+        "mode", kTxOperatingMode, 0, 0, 3);
+    addBinaryControl("home.kitchen_light", "the kitchen light", kTxKitchenLight);
+    addBinaryControl("home.living_room_light", "the living room light", kTxLivingRoomLight);
+    addBinaryControl("home.reception_light", "the reception light", kTxReceptionLight);
+    addBinaryControl("home.room1_light", "the first room light", kTxRoom1Light);
+    addBinaryControl("home.room2_light", "the second room light", kTxRoom2Light);
+    addBinaryControl("home.bedroom_light", "the bedroom light", kTxBedroomLight);
+    addBinaryControl("home.bedside_light", "the bedside light", kTxBedsideLight);
+    addBinaryControl("home.yard_light", "the yard light", kTxYardLight);
+    addBinaryControl("home.storage_light", "the storage room light", kTxStorageLight);
+    addNumericControl("home.set_air_conditioner",
+        "Set air conditioner level from 0 to 100 percent; 0 means off.",
+        "level", kTxAirConditioner, 0, 0, 100);
+    addBinaryControl("home.window", "the window", kTxWindow);
+    addBinaryControl("home.electric_shutter", "the electric shutter", kTxElectricShutter);
+    addNumericControl("home.set_lighting_effect",
+        "Set the lighting effect value from 0 to 255.",
+        "effect", kTxLightingEffect, 0, 0, 255);
+    addNumericControl("water_heater.set_power",
+        "Set water heater operating power from 0 to 100 percent.",
+        "percent", kTxWaterHeaterPower, 0, 0, 100);
+    addBinaryControl("home.gas_stove", "the gas stove", kTxGasStove);
+    addBinaryControl("home.heater", "the room heater", kTxHeater);
+    addBinaryControl("home.building_gas_valve", "the building gas valve", kTxBuildingGasValve);
+    addBinaryControl("home.building_water_valve", "the building water valve", kTxBuildingWaterValve);
+    addBinaryControl("home.socket1", "socket number one", kTxSocket1);
+    addBinaryControl("home.socket2", "socket number two", kTxSocket2);
+    addBinaryControl("home.range_hood", "the range hood", kTxRangeHood);
 
     mcp.AddTool(
         "water_heater.get_temperature",
