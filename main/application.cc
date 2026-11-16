@@ -13,7 +13,7 @@
 #include "websocket_protocol.h"
 
 #if CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI
-#include "water_heater_controller.h"
+#include "boards/bread-compact-wifi/water_heater_controller.h"
 #endif
 
 #include <driver/gpio.h>
