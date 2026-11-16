@@ -150,7 +150,6 @@ private:
     // Register board-specific MCP tools and initialize the water-heater I2C slave.
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
-        InitializeWaterHeaterTools();
     }
 
 public:
@@ -162,15 +161,6 @@ public:
         InitializeDisplayI2c();
         InitializeSsd1306Display();
         InitializeButtons();
-
-        // Initialize synchronously in the normal Application task. The previous
-        // deferred-task approach could leave startup dependent on a task that was
-        // never observed entering; synchronous initialization makes every driver
-        // stage and its exact error visible before network/audio startup proceeds.
-        ESP_LOGW(TAG, "HAJALI_I2C: INIT_BEGIN");
-        const bool i2cReady = HajAliI2C::Initialize();
-        ESP_LOGW(TAG, "HAJALI_I2C: INIT_END result=%s",
-                 i2cReady ? "READY" : "FAILED");
 
         InitializeTools();
     }
