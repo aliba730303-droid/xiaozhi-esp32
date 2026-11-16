@@ -56,6 +56,7 @@ bool OnReceive(i2c_slave_dev_handle_t,
 
     BaseType_t higherPriorityTaskWoken = pdFALSE;
     const BaseType_t sent = xQueueSendFromISR(g_eventQueue, &queued, &higherPriorityTaskWoken);
+    (void)sent;
     return higherPriorityTaskWoken == pdTRUE;
 }
 
@@ -70,7 +71,8 @@ bool OnRequest(i2c_slave_dev_handle_t,
     queued.type = EventType::Request;
     BaseType_t higherPriorityTaskWoken = pdFALSE;
     const BaseType_t sent = xQueueSendFromISR(g_eventQueue, &queued, &higherPriorityTaskWoken);
-    return sent == pdTRUE && higherPriorityTaskWoken == pdTRUE;
+    (void)sent;
+    return higherPriorityTaskWoken == pdTRUE;
 }
 
 void I2CWorker(void*) {
