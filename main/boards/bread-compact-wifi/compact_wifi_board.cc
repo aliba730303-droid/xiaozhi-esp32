@@ -28,9 +28,9 @@
 // Run I2C startup in its own task, not in the board constructor.
 // ROM prints bypass ESP-IDF tag-level filtering and make entry/exit unambiguous.
 static void HajAliI2CInitTask(void*) {
-    esp_rom_printf("\\r\\nHAJALI_I2C_TASK: ENTER\\r\\n");
+    esp_rom_printf("\r\nHAJALI_I2C_TASK: ENTER\r\n");
     const bool ready = HajAliI2C::Initialize();
-    esp_rom_printf("HAJALI_I2C_TASK: RESULT=%s\\r\\n", ready ? "READY" : "FAILED");
+    esp_rom_printf("HAJALI_I2C_TASK: RESULT=%s\r\n", ready ? "READY" : "FAILED");
     ESP_LOGE(TAG, "HAJALI_I2C: INIT_RESULT=%s", ready ? "READY" : "FAILED");
     vTaskDelete(nullptr);
 }
@@ -179,8 +179,8 @@ public:
         // doing driver setup on the board-construction stack/context.
         ESP_LOGW(TAG, "HAJALI_I2C: QUEUE_INIT_TASK");
         const BaseType_t taskCreated = xTaskCreate(
-            HajAliI2CInitTask, "hajali_i2c_init", 4096, nullptr, 6, nullptr);
-        esp_rom_printf("HAJALI_I2C: INIT_TASK_CREATE=%d\\r\\n", (int)taskCreated);
+            HajAliI2CInitTask, "hajali_i2c_init", 6144, nullptr, 2, nullptr);
+        esp_rom_printf("HAJALI_I2C: INIT_TASK_CREATE=%d\r\n", (int)taskCreated);
         if (taskCreated != pdPASS) {
             ESP_LOGE(TAG, "HAJALI_I2C: failed to create initialization task");
         }
