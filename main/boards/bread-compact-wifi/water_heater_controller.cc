@@ -335,7 +335,7 @@ void InitializeWaterHeaterTools() {
     addBinaryControl("home.heating_element", "the water heater heating element", HajAliI2C::kTxHeatingElement);
     addNumericControl("home.set_operating_mode",
         "Set the water heater operating mode: 0=High Performance, 1=Smart Mode, 2=Economy, 3=Low Performance.",
-        "mode", kTxOperatingMode, 0, 0, 3);
+        "mode", HajAliI2C::kTxOperatingMode, 0, 0, 3);
     addBinaryControl("home.kitchen_light", "the kitchen light", HajAliI2C::kTxKitchenLight);
     addBinaryControl("home.living_room_light", "the living room light", HajAliI2C::kTxLivingRoomLight);
     addBinaryControl("home.reception_light", "the reception light", HajAliI2C::kTxReceptionLight);
@@ -347,15 +347,15 @@ void InitializeWaterHeaterTools() {
     addBinaryControl("home.storage_light", "the storage room light", HajAliI2C::kTxStorageLight);
     addNumericControl("home.set_air_conditioner",
         "Set air conditioner level from 0 to 100 percent; 0 means off.",
-        "level", kTxAirConditioner, 0, 0, 100);
+        "level", HajAliI2C::kTxAirConditioner, 0, 0, 100);
     addBinaryControl("home.window", "the window", HajAliI2C::kTxWindow);
     addBinaryControl("home.electric_shutter", "the electric shutter", HajAliI2C::kTxElectricShutter);
     addNumericControl("home.set_lighting_effect",
         "Set the lighting effect value from 0 to 255.",
-        "effect", kTxLightingEffect, 0, 0, 255);
+        "effect", HajAliI2C::kTxLightingEffect, 0, 0, 255);
     addNumericControl("water_heater.set_power",
         "Set water heater operating power from 0 to 100 percent.",
-        "percent", kTxWaterHeaterPower, 0, 0, 100);
+        "percent", HajAliI2C::kTxWaterHeaterPower, 0, 0, 100);
     addBinaryControl("home.gas_stove", "the gas stove", HajAliI2C::kTxGasStove);
     addBinaryControl("home.heater", "the room heater", HajAliI2C::kTxHeater);
     addBinaryControl("home.building_gas_valve", "the building gas valve", HajAliI2C::kTxBuildingGasValve);
