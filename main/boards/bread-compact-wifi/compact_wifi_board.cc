@@ -4,6 +4,7 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "display/display.h"
 #include "mcp_server.h"
 #include "lamp_controller.h"
 #include "water_heater_controller.h"
