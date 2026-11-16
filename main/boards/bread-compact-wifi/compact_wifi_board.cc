@@ -12,9 +12,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_log.h>
-#include <esp_rom_sys.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -24,16 +22,6 @@
 #endif
 
 #define TAG "CompactWifiBoard"
-
-// Run I2C startup in its own task, not in the board constructor.
-// ROM prints bypass ESP-IDF tag-level filtering and make entry/exit unambiguous.
-static void HajAliI2CInitTask(void*) {
-    esp_rom_printf("\r\nHAJALI_I2C_TASK: ENTER\r\n");
-    const bool ready = HajAliI2C::Initialize();
-    esp_rom_printf("HAJALI_I2C_TASK: RESULT=%s\r\n", ready ? "READY" : "FAILED");
-    ESP_LOGE(TAG, "HAJALI_I2C: INIT_RESULT=%s", ready ? "READY" : "FAILED");
-    vTaskDelete(nullptr);
-}
 
 class CompactWifiBoard : public WifiBoard {
 private:
@@ -175,15 +163,14 @@ public:
         InitializeSsd1306Display();
         InitializeButtons();
 
-        // Defer I2C initialization to a dedicated RTOS task. This avoids
-        // doing driver setup on the board-construction stack/context.
-        ESP_LOGW(TAG, "HAJALI_I2C: QUEUE_INIT_TASK");
-        const BaseType_t taskCreated = xTaskCreate(
-            HajAliI2CInitTask, "hajali_i2c_init", 6144, nullptr, 2, nullptr);
-        esp_rom_printf("HAJALI_I2C: INIT_TASK_CREATE=%d\r\n", (int)taskCreated);
-        if (taskCreated != pdPASS) {
-            ESP_LOGE(TAG, "HAJALI_I2C: failed to create initialization task");
-        }
+        // Initialize synchronously in the normal Application task. The previous
+        // deferred-task approach could leave startup dependent on a task that was
+        // never observed entering; synchronous initialization makes every driver
+        // stage and its exact error visible before network/audio startup proceeds.
+        ESP_LOGW(TAG, "HAJALI_I2C: INIT_BEGIN");
+        const bool i2cReady = HajAliI2C::Initialize();
+        ESP_LOGW(TAG, "HAJALI_I2C: INIT_END result=%s",
+                 i2cReady ? "READY" : "FAILED");
 
         InitializeTools();
     }
