@@ -310,7 +310,7 @@ void InitializeWaterHeaterTools() {
             });
         mcp.AddTool(stateName, stateDescription, PropertyList(),
             [index](const PropertyList&) -> ReturnValue {
-                return std::string("{\\"value\\":") + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
+                return std::string("{\"value\":") + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
             });
     };
 
