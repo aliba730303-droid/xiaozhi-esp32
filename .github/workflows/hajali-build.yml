@@ -3,6 +3,9 @@ name: Build Haj Ali ESP32-S3
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - hajali/water-heater-i2c
 
 jobs:
   build:
