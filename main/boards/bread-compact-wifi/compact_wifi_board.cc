@@ -75,6 +75,10 @@ private:
     // Register board-specific MCP tools and initialize the water-heater I2C slave.
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
+        if (!HajAliI2C::Initialize()) {
+            ESP_LOGE(TAG, "Failed to initialize Haj Ali I2C slave");
+        }
+        InitializeWaterHeaterTools();
     }
 
 public:
