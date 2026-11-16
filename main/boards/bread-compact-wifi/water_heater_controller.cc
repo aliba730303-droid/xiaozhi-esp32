@@ -287,82 +287,85 @@ void InitializeWaterHeaterTools() {
         });
 
 
-    // Register each home control as an actual MCP tool. Each operation updates
-    // the corresponding byte in the 25-byte I2C frame.
-    auto addBinaryControl = [&mcp](const char* toolPrefix, const char* label, uint8_t index) {
-        const std::string onName = std::string(toolPrefix) + ".turn_on";
-        const std::string offName = std::string(toolPrefix) + ".turn_off";
-        const std::string stateName = std::string(toolPrefix) + ".get_state";
-        const std::string onDescription = std::string("Turn on ") + label + " and set its I2C status byte to 1.";
-        const std::string offDescription = std::string("Turn off ") + label + " and set its I2C status byte to 0.";
-        const std::string stateDescription = std::string("Read the current requested state of ") + label + ".";
-        mcp.AddTool(onName, onDescription, PropertyList(),
-            [index](const PropertyList&) -> ReturnValue {
-                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
-                HajAliI2C::SetTxValue(index, 1, 0, 1);
-                return true;
-            });
-        mcp.AddTool(offName, offDescription, PropertyList(),
-            [index](const PropertyList&) -> ReturnValue {
-                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
-                HajAliI2C::SetTxValue(index, 0, 0, 1);
-                return true;
-            });
-        mcp.AddTool(stateName, stateDescription, PropertyList(),
-            [index](const PropertyList&) -> ReturnValue {
-                return std::string("{\"value\":") + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
-            });
-    };
+    // Keep the home-control API compact: the XiaoZhi model/client may only
+    // consume the first MCP tools/list page. One binary tool covers all switches.
+    mcp.AddTool(
+        "home.control",
+        "Control a home device. Use device identifiers: heating_element, kitchen_light, living_room_light, reception_light, room1_light, room2_light, bedroom_light, bedside_light, yard_light, storage_light, window, electric_shutter, gas_stove, heater, building_gas_valve, building_water_valve, socket1, socket2, range_hood. action must be on, off, or status. Call this tool when the user asks to turn a listed device on or off, or asks its state. Do not say the device is not connected; the I2C master reads the requested state.",
+        PropertyList({Property("device", kPropertyTypeString), Property("action", kPropertyTypeString)}),
+        [](const PropertyList& properties) -> ReturnValue {
+            const std::string device = properties["device"].value<std::string>();
+            const std::string action = properties["action"].value<std::string>();
+            uint8_t index = 255;
+            if (device == "heating_element") index = HajAliI2C::kTxHeatingElement;
+            else if (device == "kitchen_light") index = HajAliI2C::kTxKitchenLight;
+            else if (device == "living_room_light") index = HajAliI2C::kTxLivingRoomLight;
+            else if (device == "reception_light") index = HajAliI2C::kTxReceptionLight;
+            else if (device == "room1_light") index = HajAliI2C::kTxRoom1Light;
+            else if (device == "room2_light") index = HajAliI2C::kTxRoom2Light;
+            else if (device == "bedroom_light") index = HajAliI2C::kTxBedroomLight;
+            else if (device == "bedside_light") index = HajAliI2C::kTxBedsideLight;
+            else if (device == "yard_light") index = HajAliI2C::kTxYardLight;
+            else if (device == "storage_light") index = HajAliI2C::kTxStorageLight;
+            else if (device == "window") index = HajAliI2C::kTxWindow;
+            else if (device == "electric_shutter") index = HajAliI2C::kTxElectricShutter;
+            else if (device == "gas_stove") index = HajAliI2C::kTxGasStove;
+            else if (device == "heater") index = HajAliI2C::kTxHeater;
+            else if (device == "building_gas_valve") index = HajAliI2C::kTxBuildingGasValve;
+            else if (device == "building_water_valve") index = HajAliI2C::kTxBuildingWaterValve;
+            else if (device == "socket1") index = HajAliI2C::kTxSocket1;
+            else if (device == "socket2") index = HajAliI2C::kTxSocket2;
+            else if (device == "range_hood") index = HajAliI2C::kTxRangeHood;
 
-    auto addNumericControl = [&mcp](const char* toolName, const char* description,
-                                    const char* propertyName, uint8_t index,
-                                    int defaultValue, int minimum, int maximum) {
-        mcp.AddTool(toolName, description,
-            PropertyList({Property(propertyName, kPropertyTypeInteger, defaultValue, minimum, maximum)}),
-            [index, minimum, maximum, propertyName](const PropertyList& properties) -> ReturnValue {
-                const int value = properties[propertyName].value<int>();
-                if (!HajAliI2C::IsReady()) return std::string("I2C link is not ready.");
-                if (value < minimum || value > maximum ||
-                    !HajAliI2C::SetTxValue(index, static_cast<uint8_t>(value),
-                                           static_cast<uint8_t>(minimum), static_cast<uint8_t>(maximum))) {
-                    return std::string("Value is outside the allowed range.");
-                }
-                return std::string("Value updated to ") + std::to_string(value) +
-                       ". It will be sent to the master on its next I2C read.";
-            });
-    };
+            if (index == 255) return std::string("Unknown device. Use one of the device identifiers in the tool description.");
+            if (action == "status") {
+                return std::string("{\\"device\\":\\"") + device +
+                       "\\\",\\"value\\":" + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
+            }
+            if (action != "on" && action != "off") {
+                return std::string("Invalid action. Use on, off, or status.");
+            }
+            if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
+            const uint8_t value = action == "on" ? 1 : 0;
+            if (!HajAliI2C::SetTxValue(index, value, 0, 1)) {
+                return std::string("Failed to update device state.");
+            }
+            ESP_LOGI(kTag, "MCP control: device=%s action=%s TX[%u]=%u",
+                     device.c_str(), action.c_str(), index, value);
+            return std::string(device) + (value ? " turned on; " : " turned off; ") +
+                   "the new state is stored in the I2C transmit frame.";
+        });
 
-    addBinaryControl("home.heating_element", "the water heater heating element", HajAliI2C::kTxHeatingElement);
-    addNumericControl("home.set_operating_mode",
-        "Set the water heater operating mode: 0=High Performance, 1=Smart Mode, 2=Economy, 3=Low Performance.",
-        "mode", HajAliI2C::kTxOperatingMode, 0, 0, 3);
-    addBinaryControl("home.kitchen_light", "the kitchen light", HajAliI2C::kTxKitchenLight);
-    addBinaryControl("home.living_room_light", "the living room light", HajAliI2C::kTxLivingRoomLight);
-    addBinaryControl("home.reception_light", "the reception light", HajAliI2C::kTxReceptionLight);
-    addBinaryControl("home.room1_light", "the first room light", HajAliI2C::kTxRoom1Light);
-    addBinaryControl("home.room2_light", "the second room light", HajAliI2C::kTxRoom2Light);
-    addBinaryControl("home.bedroom_light", "the bedroom light", HajAliI2C::kTxBedroomLight);
-    addBinaryControl("home.bedside_light", "the bedside light", HajAliI2C::kTxBedsideLight);
-    addBinaryControl("home.yard_light", "the yard light", HajAliI2C::kTxYardLight);
-    addBinaryControl("home.storage_light", "the storage room light", HajAliI2C::kTxStorageLight);
-    addNumericControl("home.set_air_conditioner",
-        "Set air conditioner level from 0 to 100 percent; 0 means off.",
-        "level", HajAliI2C::kTxAirConditioner, 0, 0, 100);
-    addBinaryControl("home.window", "the window", HajAliI2C::kTxWindow);
-    addBinaryControl("home.electric_shutter", "the electric shutter", HajAliI2C::kTxElectricShutter);
-    addNumericControl("home.set_lighting_effect",
-        "Set the lighting effect value from 0 to 255.",
-        "effect", HajAliI2C::kTxLightingEffect, 0, 0, 255);
-    addNumericControl("water_heater.set_power",
-        "Set water heater operating power from 0 to 100 percent.",
-        "percent", HajAliI2C::kTxWaterHeaterPower, 0, 0, 100);
-    addBinaryControl("home.gas_stove", "the gas stove", HajAliI2C::kTxGasStove);
-    addBinaryControl("home.heater", "the room heater", HajAliI2C::kTxHeater);
-    addBinaryControl("home.building_gas_valve", "the building gas valve", HajAliI2C::kTxBuildingGasValve);
-    addBinaryControl("home.building_water_valve", "the building water valve", HajAliI2C::kTxBuildingWaterValve);
-    addBinaryControl("home.socket1", "socket number one", HajAliI2C::kTxSocket1);
-    addBinaryControl("home.socket2", "socket number two", HajAliI2C::kTxSocket2);
-    addBinaryControl("home.range_hood", "the range hood", HajAliI2C::kTxRangeHood);
+    // Numeric controls share one compact MCP tool to avoid MCP list pagination.
+    mcp.AddTool(
+        "home.set_level",
+        "Set a numeric home-control value. device identifiers and ranges: air_conditioner (0-100 percent), lighting_effect (0-255), water_heater_power (0-100 percent), operating_mode (0=High Performance, 1=Smart, 2=Economy, 3=Low Performance). Call this for numeric level, power, lighting effect, or operating-mode requests.",
+        PropertyList({Property("device", kPropertyTypeString), Property("value", kPropertyTypeInteger)}),
+        [](const PropertyList& properties) -> ReturnValue {
+            const std::string device = properties["device"].value<std::string>();
+            const int value = properties["value"].value<int>();
+            uint8_t index = 255;
+            int minimum = 0;
+            int maximum = 100;
+            if (device == "air_conditioner") index = HajAliI2C::kTxAirConditioner;
+            else if (device == "lighting_effect") { index = HajAliI2C::kTxLightingEffect; maximum = 255; }
+            else if (device == "water_heater_power") index = HajAliI2C::kTxWaterHeaterPower;
+            else if (device == "operating_mode") { index = HajAliI2C::kTxOperatingMode; maximum = 3; }
+            if (index == 255) return std::string("Unknown numeric device.");
+            if (value < minimum || value > maximum) {
+                return std::string("Value outside allowed range: ") + std::to_string(minimum) +
+                       " to " + std::to_string(maximum) + ".";
+            }
+            if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
+            if (!HajAliI2C::SetTxValue(index, static_cast<uint8_t>(value),
+                                       static_cast<uint8_t>(minimum), static_cast<uint8_t>(maximum))) {
+                return std::string("Failed to update numeric value.");
+            }
+            ESP_LOGI(kTag, "MCP numeric control: device=%s value=%d TX[%u]",
+                     device.c_str(), value, index);
+            return std::string(device) + " updated to " + std::to_string(value) +
+                   "; the new value is stored in the I2C transmit frame.";
+        });
 
     mcp.AddTool(
         "water_heater.get_temperature",
