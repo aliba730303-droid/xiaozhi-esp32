@@ -134,7 +134,7 @@ bool Initialize() {
     g_txData[kTargetTemperatureIndex] = kDefaultTargetTemperature;
 
     const i2c_slave_config_t config = {
-        .i2c_port = I2C_NUM_1,
+        .i2c_port = I2C_NUM_0,
         .sda_io_num = WATER_HEATER_I2C_SDA_GPIO,
         .scl_io_num = WATER_HEATER_I2C_SCL_GPIO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
