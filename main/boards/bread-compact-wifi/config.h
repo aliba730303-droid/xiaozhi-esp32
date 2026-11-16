@@ -33,28 +33,9 @@
 #define VOLUME_UP_BUTTON_GPIO   GPIO_NUM_40
 #define VOLUME_DOWN_BUTTON_GPIO GPIO_NUM_39
 
-#define DISPLAY_SDA_PIN GPIO_NUM_41
-#define DISPLAY_SCL_PIN GPIO_NUM_42
-#define DISPLAY_WIDTH   128
-
-#if CONFIG_OLED_SSD1306_128X32
-#define DISPLAY_HEIGHT  32
-#elif CONFIG_OLED_SSD1306_128X64
-#define DISPLAY_HEIGHT  64
-#elif CONFIG_OLED_SH1106_128X64
-#define DISPLAY_HEIGHT  64
-#define SH1106
-#else
-#error "OLED display type is not selected"
-#endif
-
-#define DISPLAY_MIRROR_X true
-#define DISPLAY_MIRROR_Y true
-
-// Separate I2C bus for the LILYGO master (water-heater controller).
-// These pins do not overlap the OLED, audio, buttons, LED, or lamp GPIO.
-#define WATER_HEATER_I2C_SDA_GPIO GPIO_NUM_17
-#define WATER_HEATER_I2C_SCL_GPIO GPIO_NUM_8
+// OLED removed. Reuse its former I2C pins for the water-heater slave.
+#define WATER_HEATER_I2C_SDA_GPIO GPIO_NUM_41
+#define WATER_HEATER_I2C_SCL_GPIO GPIO_NUM_42
 
 // A MCP Test: Control a lamp
 #define LAMP_GPIO GPIO_NUM_18
