@@ -56,7 +56,7 @@ bool OnReceive(i2c_slave_dev_handle_t,
 
     BaseType_t higherPriorityTaskWoken = pdFALSE;
     const BaseType_t sent = xQueueSendFromISR(g_eventQueue, &queued, &higherPriorityTaskWoken);
-    return sent == pdTRUE && higherPriorityTaskWoken == pdTRUE;
+    return higherPriorityTaskWoken == pdTRUE;
 }
 
 bool OnRequest(i2c_slave_dev_handle_t,
@@ -114,19 +114,21 @@ void I2CWorker(void*) {
 namespace HajAliI2C {
 
 bool Initialize() {
-    ESP_LOGI(kTag, "INIT_STEP=ENTER");
+    // Set an explicit tag level: some XiaoZhi builds filter newly introduced tags.
+    esp_log_level_set(kTag, ESP_LOG_INFO);
+    ESP_LOGE(kTag, "INIT_STEP=ENTER");
     if (g_ready) {
         return true;
     }
 
-    ESP_LOGI(kTag, "INIT_STEP=CREATE_QUEUE");
+    ESP_LOGE(kTag, "INIT_STEP=CREATE_QUEUE");
     g_eventQueue = xQueueCreate(8, sizeof(I2CEvent));
     if (g_eventQueue == nullptr) {
         ESP_LOGE(kTag, "Failed to create I2C event queue");
         return false;
     }
 
-    ESP_LOGI(kTag, "INIT_STEP=QUEUE_OK");
+    ESP_LOGE(kTag, "INIT_STEP=QUEUE_OK");
     g_txData[kTargetTemperatureIndex] = kDefaultTargetTemperature;
 
     const i2c_slave_config_t config = {
@@ -145,9 +147,9 @@ bool Initialize() {
         },
     };
 
-    ESP_LOGI(kTag, "INIT_STEP=NEW_SLAVE port=%d SDA=%d SCL=%d addr=0x%02X", (int)config.i2c_port, (int)config.sda_io_num, (int)config.scl_io_num, kSlaveAddress);
+    ESP_LOGE(kTag, "INIT_STEP=NEW_SLAVE port=%d SDA=%d SCL=%d addr=0x%02X", (int)config.i2c_port, (int)config.sda_io_num, (int)config.scl_io_num, kSlaveAddress);
     esp_err_t err = i2c_new_slave_device(&config, &g_slave);
-    ESP_LOGI(kTag, "INIT_STEP=NEW_SLAVE_RETURN err=%s", esp_err_to_name(err));
+    ESP_LOGE(kTag, "INIT_STEP=NEW_SLAVE_RETURN err=%s", esp_err_to_name(err));
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "I2C slave initialization failed: %s", esp_err_to_name(err));
         vQueueDelete(g_eventQueue);
@@ -155,13 +157,13 @@ bool Initialize() {
         return false;
     }
 
-    ESP_LOGI(kTag, "INIT_STEP=REGISTER_CALLBACKS");
+    ESP_LOGE(kTag, "INIT_STEP=REGISTER_CALLBACKS");
     const i2c_slave_event_callbacks_t callbacks = {
         .on_request = OnRequest,
         .on_receive = OnReceive,
     };
     err = i2c_slave_register_event_callbacks(g_slave, &callbacks, nullptr);
-    ESP_LOGI(kTag, "INIT_STEP=CALLBACKS_RETURN err=%s", esp_err_to_name(err));
+    ESP_LOGE(kTag, "INIT_STEP=CALLBACKS_RETURN err=%s", esp_err_to_name(err));
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "I2C callback registration failed: %s", esp_err_to_name(err));
         i2c_del_slave_device(g_slave);
@@ -171,8 +173,8 @@ bool Initialize() {
         return false;
     }
 
-    ESP_LOGI(kTag, "INIT_STEP=CREATE_WORKER");
-    if (xTaskCreate(I2CWorker, "hajali_i2c", 3072, nullptr, 5, &g_workerTask) != pdPASS) {
+    ESP_LOGE(kTag, "INIT_STEP=CREATE_WORKER");
+    if (xTaskCreate(I2CWorker, "hajali_i2c", 4096, nullptr, 6, &g_workerTask) != pdPASS) {
         ESP_LOGE(kTag, "Failed to create I2C worker task");
         i2c_del_slave_device(g_slave);
         g_slave = nullptr;
@@ -181,9 +183,9 @@ bool Initialize() {
         return false;
     }
 
-    ESP_LOGI(kTag, "INIT_STEP=WORKER_CREATED");
+    ESP_LOGE(kTag, "INIT_STEP=WORKER_CREATED");
     g_ready = true;
-    ESP_LOGI(kTag, "I2C slave ready: address=0x%02X SDA=GPIO%d SCL=GPIO%d",
+    ESP_LOGE(kTag, "I2C slave ready: address=0x%02X SDA=GPIO%d SCL=GPIO%d",
              kSlaveAddress, static_cast<int>(WATER_HEATER_I2C_SDA_GPIO),
              static_cast<int>(WATER_HEATER_I2C_SCL_GPIO));
     return true;
@@ -236,8 +238,6 @@ void InitializeWaterHeaterTools() {
         return;
     }
     toolsRegistered = true;
-
-    HajAliI2C::Initialize();
 
     auto& mcp = McpServer::GetInstance();
     mcp.AddTool(
