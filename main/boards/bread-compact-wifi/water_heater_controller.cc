@@ -319,8 +319,8 @@ void InitializeWaterHeaterTools() {
 
             if (index == 255) return std::string("Unknown device. Use one of the device identifiers in the tool description.");
             if (action == "status") {
-                return std::string("{\\"device\\":\\"") + device +
-                       "\\\",\\"value\\":" + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
+                return std::string("{\"device\":\"") + device +
+                       "\",\"value\":" + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
             }
             if (action != "on" && action != "off") {
                 return std::string("Invalid action. Use on, off, or status.");
