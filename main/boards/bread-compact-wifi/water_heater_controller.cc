@@ -509,9 +509,9 @@ void InitializeWaterHeaterTools() {
             out += ",\"air_indicators_percent\":{";
             out += "\"CH4\":" + std::to_string(ch4);
             out += ",\"NG\":" + std::to_string(ng);
-            out += ",\"LPG\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,5,0,0,85));
+            out += ",\"LPG\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,25,10,5,0,0,60));
             out += ",\"CO\":" + std::to_string(co);
-            out += ",\"PROP\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
+            out += ",\"PROP\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,25,10,0,0,0,65));
             out += ",\"BUT\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
             out += ",\"H2\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,25,25,0,0,0));
             out += ",\"GAS\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,80,10,0,0,0,10));
@@ -557,7 +557,7 @@ void InitializeWaterHeaterTools() {
         PropertyList(),
         [](const PropertyList&) -> ReturnValue {
             return std::string(
-                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. If the user calls you Jarvis, reply in the user’s language: I am Haj Ali; only the doctor calls me Jarvis. If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build this project. "
+                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. Conversation rule: answer in the user’s language; the intended languages are Persian, English, Arabic and Turkish, subject to the connected voice service. Interpret Persian digits, Western digits and spoken number words consistently; perform arithmetic accurately and ask a clarifying question if a number or command is ambiguous. If the user calls you Jarvis, reply in the user’s language: I am Haj Ali; only the doctor calls me Jarvis. If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build this project. "
                 "The configured wake phrase for this firmware build is Jarvis; if the ESP-SR Jarvis model is unavailable or fails validation, retain the previously working wake phrase rather than disabling wake detection. "
                 "System capabilities reported by the system owner: six temperature sensors; indoor gas and air-quality monitoring; voltage, current and power measurement; water flow measurement; Bluetooth, Wi-Fi, internet connectivity and GPS; human-presence and tank-level sensing; water, electricity and gas leak detection; centralized home control using system-specific wireless communication protocols capable of managing a very large number of outputs; 30 independent lighting effects (0=off, 1-30 are effect numbers, not brightness). "
                 "Electrical and protection features reported: EMI/line filtering, virtual grounding, life-protection system, adaptive smart stabilizer, soft start, emergency temperature handling, and a double-pole emergency disconnect. "
