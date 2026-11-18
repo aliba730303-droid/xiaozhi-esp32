@@ -182,7 +182,7 @@ void WifiBoard::StartWifiConfigMode() {
         ESP_LOGW(TAG, "Provisioning AP config update failed: %s", esp_err_to_name(ap_err));
     }
 
-    ap_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    ap_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     if (ap_err != ESP_OK) {
         ESP_LOGW(TAG, "Provisioning AP HT20 setup failed: %s", esp_err_to_name(ap_err));
     }
