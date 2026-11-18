@@ -9,6 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_network.h>
+#include <esp_wifi.h>
 #include <esp_log.h>
 #include <utility>
 
@@ -164,6 +165,45 @@ void WifiBoard::StartWifiConfigMode() {
     auto& wifi_manager = WifiManager::GetInstance();
 
     wifi_manager.StartConfigAp();
+
+    // Provisioning AP compatibility hardening for ESP32-S3 phones:
+    // keep the hotspot on the universally supported 2.4 GHz channel 1,
+    // advertise it (not hidden), and use 20 MHz legacy-compatible PHY.
+    wifi_config_t ap_config = {};
+    esp_err_t ap_err = esp_wifi_get_config(WIFI_IF_AP, &ap_config);
+    if (ap_err == ESP_OK) {
+        ap_config.ap.channel = 1;
+        ap_config.ap.ssid_hidden = 0;
+        ap_config.ap.beacon_interval = 100;
+        ap_config.ap.max_connection = 4;
+        ap_err = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+    }
+    if (ap_err != ESP_OK) {
+        ESP_LOGW(TAG, "Provisioning AP config update failed: %s", esp_err_to_name(ap_err));
+    }
+
+    ap_err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    if (ap_err != ESP_OK) {
+        ESP_LOGW(TAG, "Provisioning AP HT20 setup failed: %s", esp_err_to_name(ap_err));
+    }
+
+    ap_err = esp_wifi_set_protocol(WIFI_IF_AP,
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    if (ap_err != ESP_OK) {
+        ESP_LOGW(TAG, "Provisioning AP legacy protocol setup failed: %s", esp_err_to_name(ap_err));
+    }
+
+    ap_err = esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    if (ap_err != ESP_OK) {
+        ESP_LOGW(TAG, "Provisioning AP channel setup failed: %s", esp_err_to_name(ap_err));
+    }
+
+    wifi_mode_t current_mode = WIFI_MODE_NULL;
+    wifi_config_t verified_ap = {};
+    esp_wifi_get_mode(&current_mode);
+    esp_wifi_get_config(WIFI_IF_AP, &verified_ap);
+    ESP_LOGI(TAG, "Provisioning AP hardened: mode=%d channel=%u hidden=%u auth=%d",
+        current_mode, verified_ap.ap.channel, verified_ap.ap.ssid_hidden, verified_ap.ap.authmode);
 
     // Show config prompt after a short delay
     Application::GetInstance().Schedule([&wifi_manager]() {
