@@ -19,7 +19,6 @@ namespace {
 
 constexpr char kTag[] = "HajAliI2C";
 constexpr uint8_t kSlaveAddress = 0x13;
-constexpr uint8_t kCurrentTemperatureIndex = HajAliI2C::kRxWaterTemperature;
 constexpr uint8_t kTargetTemperatureIndex = HajAliI2C::kTxTargetTemperature;
 constexpr uint8_t kDefaultTargetTemperature = 50;
 constexpr uint8_t kMinimumTemperature = 10;
@@ -336,7 +335,7 @@ void InitializeWaterHeaterTools() {
     // consume the first MCP tools/list page. One binary tool covers all switches.
     mcp.AddTool(
         "home.control",
-        "Control a home device. Use device identifiers: heating_element, kitchen_light, living_room_light, reception_light, room1_light, room2_light, bedroom_light, bedside_light, yard_light, storage_light, window, electric_shutter, gas_stove, heater, building_gas_valve, building_water_valve, socket1, socket2, range_hood. action must be on, off, or status. Call this tool when the user asks to turn a listed device on or off, or asks its state. Do not say the device is not connected; the I2C master reads the requested state.",
+        "Control a home device. Use device identifiers: heating_element, kitchen_light, living_room_light, reception_light, room1_light, room2_light, bedroom_light, bedside_light, yard_light, storage_light, window, electric_shutter, gas_stove, heater, building_gas_valve, building_water_valve, socket1, socket2, range_hood. action must be on, off, or status. Call this tool when the user asks to turn a listed device on or off, or asks its state. The status action reports the last requested value only; it is not independent confirmation of the physical device state.",
         PropertyList({Property("device", kPropertyTypeString), Property("action", kPropertyTypeString)}),
         [](const PropertyList& properties) -> ReturnValue {
             const std::string device = properties["device"].value<std::string>();
@@ -365,7 +364,8 @@ void InitializeWaterHeaterTools() {
             if (index == 255) return std::string("Unknown device. Use one of the device identifiers in the tool description.");
             if (action == "status") {
                 return std::string("{\"device\":\"") + device +
-                       "\",\"value\":" + std::to_string(HajAliI2C::GetTxValue(index)) + "}";
+                       "\",\"last_requested_value\":" + std::to_string(HajAliI2C::GetTxValue(index)) +
+                       ",\"note\":\"This is not independent confirmation of physical device state.\"}";
             }
             if (action != "on" && action != "off") {
                 return std::string("Invalid action. Use on, off, or status.");
@@ -446,15 +446,15 @@ void InitializeWaterHeaterTools() {
             if (!HajAliI2C::HasReceivedMasterFrame()) return std::string("No telemetry frame has been received from the master controller yet.");
             auto v = [](uint8_t i) { return HajAliI2C::GetRxValue(i); };
             auto comparison = [](const char* name, uint8_t current, uint8_t previous) {
-                std::string out = ",\\"";
+                std::string out = ",\"";
                 out += name;
-                out += "\\":{\\"current\\":";
+                out += "\":{\"current\":";
                 out += std::to_string(current);
-                out += ",\\"previous\\":";
+                out += ",\"previous\":";
                 out += std::to_string(previous);
-                out += ",\\"difference\\":";
+                out += ",\"difference\":";
                 out += std::to_string(static_cast<int>(current) - static_cast<int>(previous));
-                out += ",\\"change_percent\\":";
+                out += ",\"change_percent\":";
                 if (previous == 0) out += "null";
                 else out += std::to_string((static_cast<double>(current) - previous) * 100.0 / previous);
                 out += "}";
@@ -473,70 +473,70 @@ void InitializeWaterHeaterTools() {
             const int alc = v(HajAliI2C::kRxAlcohol);
             const int smoke = v(HajAliI2C::kRxCigaretteSmoke);
             const int ng = v(HajAliI2C::kRxNaturalGas);
-            std::string out = "{\\"telemetry_age_seconds\\":";
+            std::string out = "{\"telemetry_age_seconds\":";
             out += std::to_string(HajAliI2C::GetRxFrameAgeSeconds());
-            out += ",\\"water_temperature\\":" + std::to_string(v(HajAliI2C::kRxWaterTemperature));
-            out += ",\\"air_cleanliness_percent\\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness));
-            out += ",\\"air_pollution_percent\\":" + std::to_string(p);
-            out += ",\\"measured_gases_percent\\":{\\"methane\\":" + std::to_string(ch4);
-            out += ",\\"carbon_monoxide\\":" + std::to_string(co);
-            out += ",\\"alcohol\\":" + std::to_string(alc);
-            out += ",\\"cigarette_smoke\\":" + std::to_string(smoke);
-            out += ",\\"natural_gas\\":" + std::to_string(ng) + "}";
-            out += ",\\"water_consumption_today_raw\\":" + std::to_string(v(HajAliI2C::kRxDailyWater));
-            out += ",\\"mains_voltage_volts\\":" + std::to_string(v(HajAliI2C::kRxMainsVoltage));
-            out += ",\\"instant_power_watts\\":" + std::to_string(v(HajAliI2C::kRxInstantPowerRaw) * 10);
-            out += ",\\"tank_full\\":" + std::string(v(HajAliI2C::kRxTankFull) ? "true" : "false");
-            out += ",\\"leakage_voltage_volts\\":" + std::to_string(v(HajAliI2C::kRxLeakageVoltage));
-            out += ",\\"satellite_count\\":" + std::to_string(v(HajAliI2C::kRxSatelliteCount));
-            out += ",\\"cellular_connected\\":" + std::string(v(HajAliI2C::kRxCellularConnected) ? "true" : "false");
-            out += ",\\"energy_consumption_today_raw\\":" + std::to_string(v(HajAliI2C::kRxDailyEnergy));
-            out += ",\\"presence_detected\\":" + std::string(v(HajAliI2C::kRxPresence) ? "true" : "false");
-            out += ",\\"presence_not_detected_seconds\\":" + std::to_string(HajAliI2C::GetNoPresenceSeconds());
-            out += ",\\"network_signal_quality\\":" + std::to_string(v(HajAliI2C::kRxSignalQuality));
-            out += ",\\"home_temperature\\":" + std::to_string(v(HajAliI2C::kRxHomeTemperature));
-            out += ",\\"water_consumption_yesterday_raw\\":" + std::to_string(v(HajAliI2C::kRxYesterdayWater));
-            out += ",\\"energy_consumption_yesterday_raw\\":" + std::to_string(v(HajAliI2C::kRxYesterdayEnergy));
-            out += ",\\"energy_consumption_this_month_raw\\":" + std::to_string(v(HajAliI2C::kRxMonthlyEnergy));
-            out += ",\\"energy_consumption_previous_month_raw\\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyEnergy));
-            out += ",\\"water_consumption_this_month_raw\\":" + std::to_string(v(HajAliI2C::kRxMonthlyWater));
-            out += ",\\"water_consumption_previous_month_raw\\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyWater));
+            out += ",\"water_temperature\":" + std::to_string(v(HajAliI2C::kRxWaterTemperature));
+            out += ",\"air_cleanliness_percent\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness));
+            out += ",\"air_pollution_percent\":" + std::to_string(p);
+            out += ",\"measured_gases_percent\":{\"methane\":" + std::to_string(ch4);
+            out += ",\"carbon_monoxide\":" + std::to_string(co);
+            out += ",\"alcohol\":" + std::to_string(alc);
+            out += ",\"cigarette_smoke\":" + std::to_string(smoke);
+            out += ",\"natural_gas\":" + std::to_string(ng) + "}";
+            out += ",\"water_consumption_today_raw\":" + std::to_string(v(HajAliI2C::kRxDailyWater));
+            out += ",\"mains_voltage_volts\":" + std::to_string(v(HajAliI2C::kRxMainsVoltage));
+            out += ",\"instant_power_watts\":" + std::to_string(v(HajAliI2C::kRxInstantPowerRaw) * 10);
+            out += ",\"tank_full\":" + std::string(v(HajAliI2C::kRxTankFull) ? "true" : "false");
+            out += ",\"leakage_voltage_volts\":" + std::to_string(v(HajAliI2C::kRxLeakageVoltage));
+            out += ",\"satellite_count\":" + std::to_string(v(HajAliI2C::kRxSatelliteCount));
+            out += ",\"cellular_connected\":" + std::string(v(HajAliI2C::kRxCellularConnected) ? "true" : "false");
+            out += ",\"energy_consumption_today_raw\":" + std::to_string(v(HajAliI2C::kRxDailyEnergy));
+            out += ",\"presence_detected\":" + std::string(v(HajAliI2C::kRxPresence) ? "true" : "false");
+            out += ",\"presence_not_detected_seconds\":" + std::to_string(HajAliI2C::GetNoPresenceSeconds());
+            out += ",\"network_signal_quality\":" + std::to_string(v(HajAliI2C::kRxSignalQuality));
+            out += ",\"home_temperature\":" + std::to_string(v(HajAliI2C::kRxHomeTemperature));
+            out += ",\"water_consumption_yesterday_raw\":" + std::to_string(v(HajAliI2C::kRxYesterdayWater));
+            out += ",\"energy_consumption_yesterday_raw\":" + std::to_string(v(HajAliI2C::kRxYesterdayEnergy));
+            out += ",\"energy_consumption_this_month_raw\":" + std::to_string(v(HajAliI2C::kRxMonthlyEnergy));
+            out += ",\"energy_consumption_previous_month_raw\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyEnergy));
+            out += ",\"water_consumption_this_month_raw\":" + std::to_string(v(HajAliI2C::kRxMonthlyWater));
+            out += ",\"water_consumption_previous_month_raw\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyWater));
             out += comparison("daily_water_comparison", v(HajAliI2C::kRxDailyWater), v(HajAliI2C::kRxYesterdayWater));
             out += comparison("daily_energy_comparison", v(HajAliI2C::kRxDailyEnergy), v(HajAliI2C::kRxYesterdayEnergy));
             out += comparison("monthly_energy_comparison", v(HajAliI2C::kRxMonthlyEnergy), v(HajAliI2C::kRxPreviousMonthlyEnergy));
             out += comparison("monthly_water_comparison", v(HajAliI2C::kRxMonthlyWater), v(HajAliI2C::kRxPreviousMonthlyWater));
-            out += ",\\"estimated_gases_percent\\":{";
-            out += "\\"CH4\\":" + std::to_string(ch4);
-            out += ",\\"NG\\":" + std::to_string(ng);
-            out += ",\\"LPG\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,5,0,0,85));
-            out += ",\\"CO\\":" + std::to_string(co);
-            out += ",\\"PROP\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
-            out += ",\\"BUT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
-            out += ",\\"H2\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,25,25,0,0,0));
-            out += ",\\"GAS\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,80,10,0,0,0,10));
-            out += ",\\"VOC\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,85,0,0,5,5,5));
-            out += ",\\"NH3\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,25,25,0,0));
-            out += ",\\"SMOKE\\":" + std::to_string(smoke);
-            out += ",\\"FORM\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
-            out += ",\\"STYR\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,55,0,25,20,0,0));
-            out += ",\\"PHENOL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,0,25,25,0));
-            out += ",\\"TOL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
-            out += ",\\"BENZ\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,15,0,20,0));
-            out += ",\\"ACET\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,0,40,0,0));
-            out += ",\\"XYL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,20,20,0,0));
-            out += ",\\"ALCOHOL\\":" + std::to_string(alc);
-            out += ",\\"SOLVENT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,10,20,0,0));
-            out += ",\\"PAINT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,0,20,10,0));
-            out += ",\\"EXHAUST\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,75,0,15,0,0,10));
-            out += ",\\"POLLUTION\\":" + std::to_string(p);
-            out += ",\\"AIR\\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness)) + "}";
-            out += ",\\"estimation_notice\\":\\"Only the five named sensor channels are direct readings; the remaining gas indicators are rough, uncalibrated estimates and cannot establish safety.\\"";
-            out += ",\\"warnings\\":[";
+            out += ",\"estimated_gases_percent\":{";
+            out += "\"CH4\":" + std::to_string(ch4);
+            out += ",\"NG\":" + std::to_string(ng);
+            out += ",\"LPG\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,5,0,0,85));
+            out += ",\"CO\":" + std::to_string(co);
+            out += ",\"PROP\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
+            out += ",\"BUT\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
+            out += ",\"H2\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,25,25,0,0,0));
+            out += ",\"GAS\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,80,10,0,0,0,10));
+            out += ",\"VOC\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,85,0,0,5,5,5));
+            out += ",\"NH3\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,25,25,0,0));
+            out += ",\"SMOKE\":" + std::to_string(smoke);
+            out += ",\"FORM\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
+            out += ",\"STYR\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,55,0,25,20,0,0));
+            out += ",\"PHENOL\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,0,25,25,0));
+            out += ",\"TOL\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
+            out += ",\"BENZ\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,15,0,20,0));
+            out += ",\"ACET\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,0,40,0,0));
+            out += ",\"XYL\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,20,20,0,0));
+            out += ",\"ALCOHOL\":" + std::to_string(alc);
+            out += ",\"SOLVENT\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,10,20,0,0));
+            out += ",\"PAINT\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,0,20,10,0));
+            out += ",\"EXHAUST\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,75,0,15,0,0,10));
+            out += ",\"POLLUTION\":" + std::to_string(p);
+            out += ",\"AIR\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness)) + "}";
+            out += ",\"estimation_notice\":\"Only the five named sensor channels are direct readings; the remaining gas indicators are rough, uncalibrated estimates and cannot establish safety.\"";
+            out += ",\"warnings\":[";
             bool firstWarning = true;
             auto warning = [&](const std::string& message) {
                 if (!firstWarning) out += ",";
                 firstWarning = false;
-                out += "\\"" + message + "\\"";
+                out += "\"" + message + "\"";
             };
             if (ch4 > 60) warning("Methane reading exceeds 60 percent");
             if (co > 60) warning("Carbon monoxide reading exceeds 60 percent");
