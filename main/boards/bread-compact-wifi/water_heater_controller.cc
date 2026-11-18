@@ -440,7 +440,7 @@ void InitializeWaterHeaterTools() {
 
     mcp.AddTool(
         "home.get_status",
-        "Read the latest 25-byte telemetry frame from the master controller. Use this tool whenever the user asks about water temperature, indoor air quality or gas readings, water/electricity consumption, voltage, power, tank level, leakage voltage, GPS satellite count, cellular connection, presence, home temperature, or network signal. The returned frame age is in seconds. Gas channels methane, carbon monoxide, alcohol, cigarette smoke, and natural gas are sensor readings. Other gas species are rough estimates derived from the overall pollution and available sensor channels, never direct measurements and never a safety guarantee. Warn when any measured gas channel exceeds 60 percent, overall pollution exceeds 60 percent, leakage voltage exceeds 150 volts, or tank level is empty. If presence_not_detected_seconds is at least 120, say presence has not been detected within the sensor range for two minutes; do not claim the house is definitely empty. Consumption units are not specified by this firmware and must not be guessed.",
+        "Read the latest 25-byte telemetry frame from the master controller. Use this tool whenever the user asks about water temperature, indoor air quality or gas readings, water/electricity consumption, voltage, power, tank level, leakage voltage, GPS satellite count, cellular connection, presence, home temperature, or network signal. The returned frame age is in seconds. Gas channels methane, carbon monoxide, alcohol, cigarette smoke, and natural gas are sensor readings. Other gas species are rough estimates derived from the overall pollution and available sensor channels, never direct measurements and never a safety guarantee. Warn when any measured gas channel exceeds 60 percent, overall pollution exceeds 60 percent, leakage voltage exceeds 150 volts, or tank level is empty. If presence_not_detected_seconds is at least 120, say presence has not been detected within the sensor range for two minutes; do not claim the house is definitely empty. If satellite_count is zero, location is invalid; do not invent coordinates or altitude, and explain that too few satellites are available. Consumption units are not specified by this firmware and must not be guessed. Machine-learning predictions are produced by other controller boards and are not included in this 25-byte telemetry frame; never invent a forecast when the other controller has not supplied one.",
         PropertyList(),
         [](const PropertyList&) -> ReturnValue {
             if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
@@ -506,7 +506,7 @@ void InitializeWaterHeaterTools() {
             out += comparison("daily_energy_comparison", v(HajAliI2C::kRxDailyEnergy), v(HajAliI2C::kRxYesterdayEnergy));
             out += comparison("monthly_energy_comparison", v(HajAliI2C::kRxMonthlyEnergy), v(HajAliI2C::kRxPreviousMonthlyEnergy));
             out += comparison("monthly_water_comparison", v(HajAliI2C::kRxMonthlyWater), v(HajAliI2C::kRxPreviousMonthlyWater));
-            out += ",\"estimated_gases_percent\":{";
+            out += ",\"air_indicators_percent\":{";
             out += "\"CH4\":" + std::to_string(ch4);
             out += ",\"NG\":" + std::to_string(ng);
             out += ",\"LPG\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,5,0,0,85));
@@ -557,7 +557,7 @@ void InitializeWaterHeaterTools() {
         PropertyList(),
         [](const PropertyList&) -> ReturnValue {
             return std::string(
-                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. "
+                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. If the user calls you Jarvis, reply in the user’s language: I am Haj Ali; only the doctor calls me Jarvis. If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build this project. "
                 "The wake phrase may remain the existing phrase if a custom Jarvis model is unavailable. "
                 "System capabilities reported by the system owner: six temperature sensors; indoor gas and air-quality monitoring; voltage, current and power measurement; water flow measurement; Bluetooth, Wi-Fi, internet connectivity and GPS; human-presence and tank-level sensing; water, electricity and gas leak detection; centralized home control; 30 independent lighting effects (0=off, 1-30 are effect numbers, not brightness). "
                 "Electrical and protection features reported: EMI/line filtering, virtual grounding, life-protection system, adaptive smart stabilizer, soft start, emergency temperature handling, and a double-pole emergency disconnect. "
