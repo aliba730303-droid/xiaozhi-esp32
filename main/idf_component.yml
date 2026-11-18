@@ -33,7 +33,10 @@ dependencies:
     version: ^0.4.1
     rules:
     - if: target not in [esp32]
-  78/uart-eth-modem: ~0.7.1
+  78/uart-eth-modem:
+    version: ~0.7.1
+    rules:
+    - if: target not in [esp32]
   78/xiaozhi-fonts: ~2.0.0
   espressif/led_strip: ~3.0.3
   espressif/esp_codec_dev: ~1.6.2
