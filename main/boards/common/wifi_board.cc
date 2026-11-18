@@ -55,15 +55,14 @@ void WifiBoard::StartNetwork() {
 
     // Initialize WiFi manager
     WifiManagerConfig config;
-    // Keep Wi-Fi provisioning initialization aligned with the known-good
-    // XiaoZhi v2.2.2 firmware. The AP SSID remains HajAli-XXXX.
+    // Keep the custom HajAli access-point name while using the ESP-IDF 6
+    // compatible Wi-Fi manager API.
     config.ssid_prefix = "HajAli";
     config.language = Lang::CODE;
     wifi_manager.Initialize(config);
 
-    // Use the original one-argument callback API from esp-wifi-connect 3.0.x.
-    wifi_manager.SetEventCallback([this, &wifi_manager](WifiEvent event) {
-        const std::string ssid = wifi_manager.GetSsid();
+    // Forward the SSID supplied by esp-wifi-connect 3.3.x.
+    wifi_manager.SetEventCallback([this](WifiEvent event, const std::string& ssid) {
         switch (event) {
             case WifiEvent::Scanning:
                 OnNetworkEvent(NetworkEvent::Scanning);
