@@ -11,6 +11,7 @@
 #include <esp_network.h>
 #include <esp_log.h>
 #include <esp_mac.h>
+#include <esp_wifi.h>
 #include <utility>
 
 #include <material_symbols.h>
@@ -54,7 +55,7 @@ void WifiBoard::StartNetwork() {
 
     // Initialize WiFi manager
     WifiManagerConfig config;
-    config.ssid_prefix = "Xiaozhi";
+    config.ssid_prefix = "HajAli";
     config.language = Lang::CODE;
     config.show_ota_config = true;
     config.show_sleep_config = true;
@@ -175,6 +176,15 @@ void WifiBoard::StartWifiConfigMode() {
     auto& wifi_manager = WifiManager::GetInstance();
 
     wifi_manager.StartConfigAp();
+
+    // Use the highest ESP-IDF Wi-Fi transmit-power setting for the setup AP.
+    // The regulatory domain and hardware may clamp the effective output power.
+    const esp_err_t tx_power_err = esp_wifi_set_max_tx_power(78); // 19.5 dBm limit
+    if (tx_power_err != ESP_OK) {
+        ESP_LOGW(TAG, "Could not raise setup AP TX power: %s", esp_err_to_name(tx_power_err));
+    } else {
+        ESP_LOGI(TAG, "Setup AP TX power set to the ESP-IDF maximum (subject to regulatory limits)");
+    }
 
     // Show config prompt after a short delay
     Application::GetInstance().Schedule([&wifi_manager]() {
