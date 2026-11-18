@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - hajali/water-heater-i2c
+      - hajali-2
 
 jobs:
   build:
@@ -26,5 +27,5 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: hajali-firmware
+          name: hajali-2-firmware
           path: build/merged-binary.bin
