@@ -10,8 +10,6 @@
 #include <freertos/task.h>
 #include <esp_network.h>
 #include <esp_log.h>
-#include <esp_mac.h>
-#include <esp_wifi.h>
 #include <utility>
 
 #include <material_symbols.h>
@@ -55,9 +53,8 @@ void WifiBoard::StartNetwork() {
 
     // Initialize WiFi manager
     WifiManagerConfig config;
-    // Keep the custom HajAli access-point name while using the ESP-IDF 6
-    // compatible Wi-Fi manager API.
-    config.ssid_prefix = "HajAli";
+    // Match the known-good XiaoZhi v2.2.2 provisioning SSID.
+    config.ssid_prefix = "Xiaozhi";
     config.language = Lang::CODE;
     wifi_manager.Initialize(config);
 
