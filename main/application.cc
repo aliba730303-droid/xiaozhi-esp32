@@ -944,6 +944,8 @@ void Application::HandleStopListeningEvent() {
 }
 
 void Application::HandleWakeWordDetectedEvent() {
+    // Select the default Haj Ali lighting effect whenever the assistant wakes.
+    HajAliI2C::SetTxValue(HajAliI2C::kTxLightingEffect, 1, 0, 30);
     if (!protocol_) {
         return;
     }
