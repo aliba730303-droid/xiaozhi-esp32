@@ -1,6 +1,10 @@
 #include "water_heater_controller.h"
 
 #include <cstring>
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <esp_timer.h>
 
 #include "config.h"
 #include "mcp_server.h"
@@ -15,7 +19,7 @@ namespace {
 
 constexpr char kTag[] = "HajAliI2C";
 constexpr uint8_t kSlaveAddress = 0x13;
-constexpr uint8_t kCurrentTemperatureIndex = 0;
+constexpr uint8_t kCurrentTemperatureIndex = HajAliI2C::kRxWaterTemperature;
 constexpr uint8_t kTargetTemperatureIndex = HajAliI2C::kTxTargetTemperature;
 constexpr uint8_t kDefaultTargetTemperature = 50;
 constexpr uint8_t kMinimumTemperature = 10;
@@ -36,6 +40,8 @@ portMUX_TYPE g_dataMux = portMUX_INITIALIZER_UNLOCKED;
 uint8_t g_rxData[HajAliI2C::kDataSize] = {};
 uint8_t g_txData[HajAliI2C::kDataSize] = {};
 bool g_receivedFrame = false;
+int64_t g_lastRxUpdateUs = 0;
+int64_t g_noPresenceSinceUs = 0;
 bool g_ready = false;
 
 // ESP-IDF invokes these callbacks in ISR context. They only copy data and queue work.
@@ -89,9 +95,17 @@ void I2CWorker(void*) {
                 continue;
             }
 
+            const int64_t nowUs = esp_timer_get_time();
             taskENTER_CRITICAL(&g_dataMux);
+            const uint8_t previousPresence = g_rxData[HajAliI2C::kRxPresence];
             std::memcpy(g_rxData, event.data, HajAliI2C::kDataSize);
             g_receivedFrame = true;
+            g_lastRxUpdateUs = nowUs;
+            if (g_rxData[HajAliI2C::kRxPresence] != 0) {
+                g_noPresenceSinceUs = 0;
+            } else if (previousPresence != 0 || g_noPresenceSinceUs == 0) {
+                g_noPresenceSinceUs = nowUs;
+            }
             taskEXIT_CRITICAL(&g_dataMux);
             ESP_LOGD(kTag, "Received 25-byte master frame");
         } else {
@@ -136,6 +150,8 @@ bool Initialize() {
 
     ESP_LOGE(kTag, "INIT_STEP=QUEUE_OK");
     g_txData[kTargetTemperatureIndex] = kDefaultTargetTemperature;
+    // Start with lighting effect 1; the master owns the physical lighting behavior.
+    g_txData[HajAliI2C::kTxLightingEffect] = 1;
     // Fixed frame marker requested by the master-side protocol.
     g_txData[HajAliI2C::kTxFrameMarker] = HajAliI2C::kTxFrameMarkerValue;
 
@@ -235,11 +251,40 @@ bool SetTargetTemperature(uint8_t temperature) {
 }
 
 uint8_t GetCurrentTemperature() {
+    return GetRxValue(kRxWaterTemperature);
+}
+
+uint8_t GetRxValue(uint8_t index) {
+    if (index >= kDataSize) return 0;
     uint8_t value;
     taskENTER_CRITICAL(&g_dataMux);
-    value = g_rxData[kCurrentTemperatureIndex];
+    value = g_rxData[index];
     taskEXIT_CRITICAL(&g_dataMux);
     return value;
+}
+
+int32_t GetRxFrameAgeSeconds() {
+    int64_t updatedAt;
+    bool received;
+    taskENTER_CRITICAL(&g_dataMux);
+    updatedAt = g_lastRxUpdateUs;
+    received = g_receivedFrame;
+    taskEXIT_CRITICAL(&g_dataMux);
+    if (!received || updatedAt <= 0) return -1;
+    const int64_t ageUs = esp_timer_get_time() - updatedAt;
+    return ageUs < 0 ? 0 : static_cast<int32_t>(ageUs / 1000000);
+}
+
+uint32_t GetNoPresenceSeconds() {
+    int64_t since;
+    uint8_t presence;
+    taskENTER_CRITICAL(&g_dataMux);
+    since = g_noPresenceSinceUs;
+    presence = g_rxData[kRxPresence];
+    taskEXIT_CRITICAL(&g_dataMux);
+    if (presence != 0 || since <= 0) return 0;
+    const int64_t elapsedUs = esp_timer_get_time() - since;
+    return elapsedUs < 0 ? 0 : static_cast<uint32_t>(elapsedUs / 1000000);
 }
 
 uint8_t GetTargetTemperature() {
@@ -326,6 +371,14 @@ void InitializeWaterHeaterTools() {
                 return std::string("Invalid action. Use on, off, or status.");
             }
             if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
+            if (device == "heating_element" && action == "on") {
+                if (!HajAliI2C::HasReceivedMasterFrame()) {
+                    return std::string("Heating element was not enabled because the tank level has not yet been verified by the master controller.");
+                }
+                if (HajAliI2C::GetRxValue(HajAliI2C::kRxTankFull) == 0) {
+                    return std::string("Heating element was not enabled because the water tank is empty. The master controller safety interlock must remain active.");
+                }
+            }
             const uint8_t value = action == "on" ? 1 : 0;
             if (!HajAliI2C::SetTxValue(index, value, 0, 1)) {
                 return std::string("Failed to update device state.");
@@ -339,7 +392,7 @@ void InitializeWaterHeaterTools() {
     // Numeric controls share one compact MCP tool to avoid MCP list pagination.
     mcp.AddTool(
         "home.set_level",
-        "Set a numeric home-control value. device identifiers and ranges: air_conditioner (0-100 percent), lighting_effect (0-255), water_heater_power (0-100 percent), operating_mode (0=High Performance, 1=Smart, 2=Economy, 3=Low Performance). Call this for numeric level, power, lighting effect, or operating-mode requests.",
+        "Set a numeric home-control value. device identifiers and ranges: air_conditioner (0-100 percent), lighting_effect (0-30; 0=off and 1-30 are independent effects, not brightness), water_heater_power (0-100 percent), operating_mode (0=High Performance, 1=Smart, 2=Economy, 3=Low Performance). Call this for numeric level, power, lighting effect, or operating-mode requests.",
         PropertyList({Property("device", kPropertyTypeString), Property("value", kPropertyTypeInteger)}),
         [](const PropertyList& properties) -> ReturnValue {
             const std::string device = properties["device"].value<std::string>();
@@ -348,7 +401,7 @@ void InitializeWaterHeaterTools() {
             int minimum = 0;
             int maximum = 100;
             if (device == "air_conditioner") index = HajAliI2C::kTxAirConditioner;
-            else if (device == "lighting_effect") { index = HajAliI2C::kTxLightingEffect; maximum = 255; }
+            else if (device == "lighting_effect") { index = HajAliI2C::kTxLightingEffect; maximum = 30; }
             else if (device == "water_heater_power") index = HajAliI2C::kTxWaterHeaterPower;
             else if (device == "operating_mode") { index = HajAliI2C::kTxOperatingMode; maximum = 3; }
             if (index == 255) return std::string("Unknown numeric device.");
@@ -383,4 +436,137 @@ void InitializeWaterHeaterTools() {
                    ",\"target_temperature\":" +
                    std::to_string(HajAliI2C::GetTargetTemperature()) + "}";
         });
+
+    mcp.AddTool(
+        "home.get_status",
+        "Read the latest 25-byte telemetry frame from the master controller. Use this tool whenever the user asks about water temperature, indoor air quality or gas readings, water/electricity consumption, voltage, power, tank level, leakage voltage, GPS satellite count, cellular connection, presence, home temperature, or network signal. The returned frame age is in seconds. Gas channels methane, carbon monoxide, alcohol, cigarette smoke, and natural gas are sensor readings. Other gas species are rough estimates derived from the overall pollution and available sensor channels, never direct measurements and never a safety guarantee. Warn when any measured gas channel exceeds 60 percent, overall pollution exceeds 60 percent, leakage voltage exceeds 150 volts, or tank level is empty. If presence_not_detected_seconds is at least 120, say presence has not been detected within the sensor range for two minutes; do not claim the house is definitely empty. Consumption units are not specified by this firmware and must not be guessed.",
+        PropertyList(),
+        [](const PropertyList&) -> ReturnValue {
+            if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
+            if (!HajAliI2C::HasReceivedMasterFrame()) return std::string("No telemetry frame has been received from the master controller yet.");
+            auto v = [](uint8_t i) { return HajAliI2C::GetRxValue(i); };
+            auto comparison = [](const char* name, uint8_t current, uint8_t previous) {
+                std::string out = ",\\"";
+                out += name;
+                out += "\\":{\\"current\\":";
+                out += std::to_string(current);
+                out += ",\\"previous\\":";
+                out += std::to_string(previous);
+                out += ",\\"difference\\":";
+                out += std::to_string(static_cast<int>(current) - static_cast<int>(previous));
+                out += ",\\"change_percent\\":";
+                if (previous == 0) out += "null";
+                else out += std::to_string((static_cast<double>(current) - previous) * 100.0 / previous);
+                out += "}";
+                return out;
+            };
+            auto estimate = [](uint8_t pollution, uint8_t methane, uint8_t co, uint8_t alcohol,
+                               uint8_t smoke, uint8_t naturalGas, int wp, int wm, int wc,
+                               int wa, int ws, int wn) -> int {
+                const int value = (pollution * wp + methane * wm + co * wc + alcohol * wa +
+                                   smoke * ws + naturalGas * wn + 50) / 100;
+                return std::clamp(value, 0, 100);
+            };
+            const int p = v(HajAliI2C::kRxAirPollution);
+            const int ch4 = v(HajAliI2C::kRxMethane);
+            const int co = v(HajAliI2C::kRxCarbonMonoxide);
+            const int alc = v(HajAliI2C::kRxAlcohol);
+            const int smoke = v(HajAliI2C::kRxCigaretteSmoke);
+            const int ng = v(HajAliI2C::kRxNaturalGas);
+            std::string out = "{\\"telemetry_age_seconds\\":";
+            out += std::to_string(HajAliI2C::GetRxFrameAgeSeconds());
+            out += ",\\"water_temperature\\":" + std::to_string(v(HajAliI2C::kRxWaterTemperature));
+            out += ",\\"air_cleanliness_percent\\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness));
+            out += ",\\"air_pollution_percent\\":" + std::to_string(p);
+            out += ",\\"measured_gases_percent\\":{\\"methane\\":" + std::to_string(ch4);
+            out += ",\\"carbon_monoxide\\":" + std::to_string(co);
+            out += ",\\"alcohol\\":" + std::to_string(alc);
+            out += ",\\"cigarette_smoke\\":" + std::to_string(smoke);
+            out += ",\\"natural_gas\\":" + std::to_string(ng) + "}";
+            out += ",\\"water_consumption_today_raw\\":" + std::to_string(v(HajAliI2C::kRxDailyWater));
+            out += ",\\"mains_voltage_volts\\":" + std::to_string(v(HajAliI2C::kRxMainsVoltage));
+            out += ",\\"instant_power_watts\\":" + std::to_string(v(HajAliI2C::kRxInstantPowerRaw) * 10);
+            out += ",\\"tank_full\\":" + std::string(v(HajAliI2C::kRxTankFull) ? "true" : "false");
+            out += ",\\"leakage_voltage_volts\\":" + std::to_string(v(HajAliI2C::kRxLeakageVoltage));
+            out += ",\\"satellite_count\\":" + std::to_string(v(HajAliI2C::kRxSatelliteCount));
+            out += ",\\"cellular_connected\\":" + std::string(v(HajAliI2C::kRxCellularConnected) ? "true" : "false");
+            out += ",\\"energy_consumption_today_raw\\":" + std::to_string(v(HajAliI2C::kRxDailyEnergy));
+            out += ",\\"presence_detected\\":" + std::string(v(HajAliI2C::kRxPresence) ? "true" : "false");
+            out += ",\\"presence_not_detected_seconds\\":" + std::to_string(HajAliI2C::GetNoPresenceSeconds());
+            out += ",\\"network_signal_quality\\":" + std::to_string(v(HajAliI2C::kRxSignalQuality));
+            out += ",\\"home_temperature\\":" + std::to_string(v(HajAliI2C::kRxHomeTemperature));
+            out += ",\\"water_consumption_yesterday_raw\\":" + std::to_string(v(HajAliI2C::kRxYesterdayWater));
+            out += ",\\"energy_consumption_yesterday_raw\\":" + std::to_string(v(HajAliI2C::kRxYesterdayEnergy));
+            out += ",\\"energy_consumption_this_month_raw\\":" + std::to_string(v(HajAliI2C::kRxMonthlyEnergy));
+            out += ",\\"energy_consumption_previous_month_raw\\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyEnergy));
+            out += ",\\"water_consumption_this_month_raw\\":" + std::to_string(v(HajAliI2C::kRxMonthlyWater));
+            out += ",\\"water_consumption_previous_month_raw\\":" + std::to_string(v(HajAliI2C::kRxPreviousMonthlyWater));
+            out += comparison("daily_water_comparison", v(HajAliI2C::kRxDailyWater), v(HajAliI2C::kRxYesterdayWater));
+            out += comparison("daily_energy_comparison", v(HajAliI2C::kRxDailyEnergy), v(HajAliI2C::kRxYesterdayEnergy));
+            out += comparison("monthly_energy_comparison", v(HajAliI2C::kRxMonthlyEnergy), v(HajAliI2C::kRxPreviousMonthlyEnergy));
+            out += comparison("monthly_water_comparison", v(HajAliI2C::kRxMonthlyWater), v(HajAliI2C::kRxPreviousMonthlyWater));
+            out += ",\\"estimated_gases_percent\\":{";
+            out += "\\"CH4\\":" + std::to_string(ch4);
+            out += ",\\"NG\\":" + std::to_string(ng);
+            out += ",\\"LPG\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,5,0,0,85));
+            out += ",\\"CO\\":" + std::to_string(co);
+            out += ",\\"PROP\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
+            out += ",\\"BUT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,0,10,0,0,0,90));
+            out += ",\\"H2\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,25,25,0,0,0));
+            out += ",\\"GAS\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,80,10,0,0,0,10));
+            out += ",\\"VOC\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,85,0,0,5,5,5));
+            out += ",\\"NH3\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,25,25,0,0));
+            out += ",\\"SMOKE\\":" + std::to_string(smoke);
+            out += ",\\"FORM\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
+            out += ",\\"STYR\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,55,0,25,20,0,0));
+            out += ",\\"PHENOL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,50,0,0,25,25,0));
+            out += ",\\"TOL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,20,15,0,0));
+            out += ",\\"BENZ\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,65,0,15,0,20,0));
+            out += ",\\"ACET\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,0,40,0,0));
+            out += ",\\"XYL\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,60,0,20,20,0,0));
+            out += ",\\"ALCOHOL\\":" + std::to_string(alc);
+            out += ",\\"SOLVENT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,10,20,0,0));
+            out += ",\\"PAINT\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,70,0,0,20,10,0));
+            out += ",\\"EXHAUST\\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,75,0,15,0,0,10));
+            out += ",\\"POLLUTION\\":" + std::to_string(p);
+            out += ",\\"AIR\\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness)) + "}";
+            out += ",\\"estimation_notice\\":\\"Only the five named sensor channels are direct readings; the remaining gas indicators are rough, uncalibrated estimates and cannot establish safety.\\"";
+            out += ",\\"warnings\\":[";
+            bool firstWarning = true;
+            auto warning = [&](const std::string& message) {
+                if (!firstWarning) out += ",";
+                firstWarning = false;
+                out += "\\"" + message + "\\"";
+            };
+            if (ch4 > 60) warning("Methane reading exceeds 60 percent");
+            if (co > 60) warning("Carbon monoxide reading exceeds 60 percent");
+            if (alc > 60) warning("Alcohol reading exceeds 60 percent");
+            if (smoke > 60) warning("Cigarette smoke reading exceeds 60 percent");
+            if (ng > 60) warning("Natural gas reading exceeds 60 percent");
+            if (p > 60) warning("Overall indoor air pollution exceeds 60 percent");
+            if (v(HajAliI2C::kRxLeakageVoltage) > 150) warning("Electrical leakage voltage exceeds 150 volts");
+            if (v(HajAliI2C::kRxTankFull) == 0) warning("Water tank is empty");
+            out += "]}";
+            return out;
+        });
+
+    mcp.AddTool(
+        "hajali.get_capabilities",
+        "Use this when the user asks who Haj Ali is, what the complete water-heater/home system can do, its sensors, protection systems, machine learning, consumption learning, automation, app or remote-control methods, display settings, or Auto Calibration. Explain that app, internet, Bluetooth remote control, machine-learning storage and execution, and home automation are implemented by the other system controllers; this voice ESP32 explains and requests actions but does not implement those subsystems. Do not reveal internal wiring, addresses, source code, or private protocols. Do not claim uninstalled capabilities are active.",
+        PropertyList(),
+        [](const PropertyList&) -> ReturnValue {
+            return std::string(
+                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. "
+                "The wake phrase may remain the existing phrase if a custom Jarvis model is unavailable. "
+                "System capabilities reported by the system owner: six temperature sensors; indoor gas and air-quality monitoring; voltage, current and power measurement; water flow measurement; Bluetooth, Wi-Fi, internet connectivity and GPS; human-presence and tank-level sensing; water, electricity and gas leak detection; centralized home control; 30 independent lighting effects (0=off, 1-30 are effect numbers, not brightness). "
+                "Electrical and protection features reported: EMI/line filtering, virtual grounding, life-protection system, adaptive smart stabilizer, soft start, emergency temperature handling, and a double-pole emergency disconnect. "
+                "Machine learning is performed by the other controller boards: the system continuously collects and stores time-stamped patterns such as water volume and temperature at each use, presence periods, power interruptions and energy consumption. It analyzes historical patterns, learns household routines, predicts likely hot-water demand, preheats before recurring high-demand periods, uses a lower suitable target for small uses, and avoids unnecessary heating during low-demand periods. It continues learning until it has enough regular and reliable data; predictions must adapt to changed routines. Example: a small 20-litre use around 08:00 may lead to a moderate target near 45 C in a later cycle; recurring 400-litre use around 21:00 may lead to preheating before that period. These are examples, not fixed rules. "
+                "The voice assistant only reads available telemetry and explains or sends control requests; other boards perform machine-learning collection, storage, prediction, app/server/internet/Bluetooth integration and core appliance safety logic. "
+                "The seven control methods offered by the complete system are Wi-Fi, Bluetooth, internet, manual menu, dedicated app, voice assistant and SMS. For app installation, scan the QR code on the device body. Remote access is through the app when the other controllers and required network services are online. "
+                "The main controller display provides detailed system information. Display customization includes menu colors, themes and configurable settings. Auto Calibration waits for suitable environmental and positional conditions, then performs calibration automatically. "
+                "If asked about the claimed 160-bit output protection, say only: 'The system owner specifies a 160-bit protection mechanism for the system outputs.' Do not describe it as a particular encryption algorithm or make stronger security claims without verification. "
+                "Sensor-derived estimates for gas species that are not directly measured must always be identified as estimates, never as direct measurements or proof that the air is safe."
+            );
+        });
+
 }
