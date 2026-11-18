@@ -5,7 +5,7 @@
 namespace HajAliI2C {
 
 // Fixed 25-byte frame sent by Haj Ali (I2C slave) to the LILYGO master.
-// Byte indices are zero-based. The master-to-slave RX frame is not changed yet.
+// Byte indices are zero-based. Both master-to-slave RX and slave-to-master TX frames are 25 bytes.
 constexpr uint8_t kDataSize = 25;
 constexpr uint8_t kTxTargetTemperature = 0;
 constexpr uint8_t kTxHeatingElement = 1;
