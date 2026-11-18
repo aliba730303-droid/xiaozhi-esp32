@@ -55,32 +55,24 @@ void WifiBoard::StartNetwork() {
 
     // Initialize WiFi manager
     WifiManagerConfig config;
+    // Keep Wi-Fi provisioning initialization aligned with the known-good
+    // XiaoZhi v2.2.2 firmware. The AP SSID remains HajAli-XXXX.
     config.ssid_prefix = "HajAli";
     config.language = Lang::CODE;
-    config.show_ota_config = true;
-    config.show_sleep_config = true;
-
-    // Set a DHCP hostname so the router shows a friendly name instead of "espressif".
-    // Uses the same "<prefix>-<last 2 MAC bytes>" scheme as the config AP SSID.
-    uint8_t mac[6];
-    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
-        char hostname[32];
-        snprintf(hostname, sizeof(hostname), "%s-%02X%02X", config.ssid_prefix.c_str(), mac[4], mac[5]);
-        config.station_hostname = hostname;
-    }
     wifi_manager.Initialize(config);
 
-    // Set unified event callback - forward to NetworkEvent with SSID data
-    wifi_manager.SetEventCallback([this](WifiEvent event, const std::string& data) {
+    // Use the original one-argument callback API from esp-wifi-connect 3.0.x.
+    wifi_manager.SetEventCallback([this, &wifi_manager](WifiEvent event) {
+        const std::string ssid = wifi_manager.GetSsid();
         switch (event) {
             case WifiEvent::Scanning:
                 OnNetworkEvent(NetworkEvent::Scanning);
                 break;
             case WifiEvent::Connecting:
-                OnNetworkEvent(NetworkEvent::Connecting, data);
+                OnNetworkEvent(NetworkEvent::Connecting, ssid);
                 break;
             case WifiEvent::Connected:
-                OnNetworkEvent(NetworkEvent::Connected, data);
+                OnNetworkEvent(NetworkEvent::Connected, ssid);
                 break;
             case WifiEvent::Disconnected:
                 OnNetworkEvent(NetworkEvent::Disconnected);
@@ -176,15 +168,6 @@ void WifiBoard::StartWifiConfigMode() {
     auto& wifi_manager = WifiManager::GetInstance();
 
     wifi_manager.StartConfigAp();
-
-    // Use the highest ESP-IDF Wi-Fi transmit-power setting for the setup AP.
-    // The regulatory domain and hardware may clamp the effective output power.
-    const esp_err_t tx_power_err = esp_wifi_set_max_tx_power(78); // 19.5 dBm limit
-    if (tx_power_err != ESP_OK) {
-        ESP_LOGW(TAG, "Could not raise setup AP TX power: %s", esp_err_to_name(tx_power_err));
-    } else {
-        ESP_LOGI(TAG, "Setup AP TX power set to the ESP-IDF maximum (subject to regulatory limits)");
-    }
 
     // Show config prompt after a short delay
     Application::GetInstance().Schedule([&wifi_manager]() {
