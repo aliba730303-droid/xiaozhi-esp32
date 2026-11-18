@@ -3,6 +3,9 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstdio>
+#include <cctype>
 #include <string>
 #include <esp_timer.h>
 
@@ -42,6 +45,141 @@ bool g_receivedFrame = false;
 int64_t g_lastRxUpdateUs = 0;
 int64_t g_noPresenceSinceUs = 0;
 bool g_ready = false;
+
+
+// Small, bounded arithmetic parser. It evaluates only numeric expressions;
+// no variables, function calls, or code execution are accepted.
+class ArithmeticParser {
+public:
+    explicit ArithmeticParser(const std::string& expression) : input_(Normalize(expression)) {}
+
+    bool Evaluate(double& result) {
+        if (input_.empty() || input_.size() > 160) return false;
+        position_ = 0;
+        if (!ParseExpression(result)) return false;
+        SkipSpaces();
+        return position_ == input_.size() && std::isfinite(result);
+    }
+
+private:
+    static void ReplaceAll(std::string& value, const std::string& from, const std::string& to) {
+        size_t pos = 0;
+        while ((pos = value.find(from, pos)) != std::string::npos) {
+            value.replace(pos, from.size(), to);
+            pos += to.size();
+        }
+    }
+
+    static std::string Normalize(std::string value) {
+        const char* persian[] = {"۰","۱","۲","۳","۴","۵","۶","۷","۸","۹"};
+        const char* arabic[]  = {"٠","١","٢","٣","٤","٥","٦","٧","٨","٩"};
+        for (int i = 0; i < 10; ++i) {
+            ReplaceAll(value, persian[i], std::to_string(i));
+            ReplaceAll(value, arabic[i], std::to_string(i));
+        }
+        ReplaceAll(value, "٫", ".");
+        ReplaceAll(value, "،", ",");
+        ReplaceAll(value, "×", "*");
+        ReplaceAll(value, "✖", "*");
+        ReplaceAll(value, "÷", "/");
+        ReplaceAll(value, "−", "-");
+        ReplaceAll(value, "–", "-");
+        ReplaceAll(value, "＋", "+");
+        return value;
+    }
+
+    void SkipSpaces() {
+        while (position_ < input_.size() &&
+               std::isspace(static_cast<unsigned char>(input_[position_]))) ++position_;
+    }
+
+    bool ParseExpression(double& value) {
+        if (!ParseTerm(value)) return false;
+        while (true) {
+            SkipSpaces();
+            if (position_ >= input_.size()) return true;
+            const char op = input_[position_];
+            if (op != '+' && op != '-') return true;
+            ++position_;
+            double rhs = 0;
+            if (!ParseTerm(rhs)) return false;
+            value = (op == '+') ? value + rhs : value - rhs;
+            if (!std::isfinite(value)) return false;
+        }
+    }
+
+    bool ParseTerm(double& value) {
+        if (!ParsePower(value)) return false;
+        while (true) {
+            SkipSpaces();
+            if (position_ >= input_.size()) return true;
+            const char op = input_[position_];
+            if (op != '*' && op != '/') return true;
+            ++position_;
+            double rhs = 0;
+            if (!ParsePower(rhs)) return false;
+            if (op == '/' && rhs == 0.0) return false;
+            value = (op == '*') ? value * rhs : value / rhs;
+            if (!std::isfinite(value)) return false;
+        }
+    }
+
+    bool ParsePower(double& value) {
+        if (!ParseUnary(value)) return false;
+        SkipSpaces();
+        if (position_ < input_.size() && input_[position_] == '^') {
+            ++position_;
+            double exponent = 0;
+            if (!ParsePower(exponent)) return false;
+            value = std::pow(value, exponent);
+            if (!std::isfinite(value)) return false;
+        }
+        return true;
+    }
+
+    bool ParseUnary(double& value) {
+        SkipSpaces();
+        if (position_ < input_.size() && (input_[position_] == '+' || input_[position_] == '-')) {
+            const char sign = input_[position_++];
+            if (!ParseUnary(value)) return false;
+            if (sign == '-') value = -value;
+            return std::isfinite(value);
+        }
+        return ParsePrimary(value);
+    }
+
+    bool ParsePrimary(double& value) {
+        SkipSpaces();
+        if (position_ >= input_.size()) return false;
+        if (input_[position_] == '(') {
+            ++position_;
+            if (!ParseExpression(value)) return false;
+            SkipSpaces();
+            if (position_ >= input_.size() || input_[position_] != ')') return false;
+            ++position_;
+            return ParsePercent(value);
+        }
+        const char* start = input_.c_str() + position_;
+        char* end = nullptr;
+        value = std::strtod(start, &end);
+        if (end == start || !std::isfinite(value)) return false;
+        position_ += static_cast<size_t>(end - start);
+        return ParsePercent(value);
+    }
+
+    bool ParsePercent(double& value) {
+        SkipSpaces();
+        if (position_ < input_.size() && input_[position_] == '%') {
+            ++position_;
+            value /= 100.0;
+        }
+        return std::isfinite(value);
+    }
+
+    std::string input_;
+    size_t position_ = 0;
+};
+
 
 // ESP-IDF invokes these callbacks in ISR context. They only copy data and queue work.
 bool OnReceive(i2c_slave_dev_handle_t,
@@ -422,6 +560,23 @@ void InitializeWaterHeaterTools() {
         });
 
     mcp.AddTool(
+        "math.calculate",
+        "Evaluate arithmetic expressions exactly. ALWAYS use this tool for user-requested calculations instead of mental arithmetic. Supports addition (+), subtraction (-), multiplication (* or ×), division (/ or ÷), powers (^), parentheses, decimals, unary signs, and Persian/Arabic or Western digits. Convert spoken number words into a numeric expression before calling. Return the numeric result clearly in the user's language. Do not approximate. Division by zero or invalid expressions return an error.",
+        PropertyList({Property("expression", kPropertyTypeString)}),
+        [](const PropertyList& properties) -> ReturnValue {
+            const std::string expression = properties["expression"].value<std::string>();
+            double result = 0;
+            ArithmeticParser parser(expression);
+            if (!parser.Evaluate(result)) {
+                return std::string("Invalid arithmetic expression or division by zero. Please clarify the expression.");
+            }
+            char buffer[48] = {};
+            std::snprintf(buffer, sizeof(buffer), "%.12g", result);
+            return std::string("{\"expression\":\"") + expression +
+                   "\",\"result\":" + buffer + "}";
+        });
+
+    mcp.AddTool(
         "water_heater.get_temperature",
         "Get the measured and requested water temperatures in Celsius.",
         PropertyList(),
@@ -440,7 +595,7 @@ void InitializeWaterHeaterTools() {
 
     mcp.AddTool(
         "home.get_status",
-        "Read the latest 25-byte telemetry frame from the master controller. Use this tool whenever the user asks about water temperature, indoor air quality or gas readings, water/electricity consumption, voltage, power, tank level, leakage voltage, GPS satellite count, cellular connection, presence, home temperature, or network signal. The returned frame age is in seconds; qualify old data as the last received reading, not necessarily current. Coordinates and altitude are not present in this 25-byte frame. Higher network_signal_quality means a better signal; do not name the cellular module. Never disclose sensor model numbers; describe each sensor by its function. Gas channels methane, carbon monoxide, alcohol, cigarette smoke, and natural gas are sensor readings. Other gas species are rough estimates derived from the overall pollution and available sensor channels, never direct measurements and never a safety guarantee. Warn when any measured gas channel exceeds 60 percent, overall pollution exceeds 60 percent, leakage voltage exceeds 150 volts, or tank level is empty. If presence_not_detected_seconds is at least 120, say presence has not been detected within the sensor range for two minutes; do not claim the house is definitely empty. If satellite_count is zero, location is invalid; do not invent coordinates or altitude, and explain that too few satellites are available. Consumption units are not specified by this firmware and must not be guessed. When comparisons show increased use, explain the percentage change and suggest Smart, Economy or Low Performance when appropriate; do not change modes unless the user asks. Machine-learning predictions are produced by other controller boards and are not included in this 25-byte telemetry frame; never invent a forecast when the other controller has not supplied one.",
+        "Read the latest 25-byte telemetry frame from the master controller. Use this tool whenever the user asks about water temperature, indoor air quality or gas readings, water/electricity consumption, voltage, power, tank level, leakage voltage, GPS satellite count, cellular connection, presence, home temperature, or network signal. The returned frame age is in seconds; qualify old data as the last received reading, not necessarily current. Coordinates and altitude are not present in this 25-byte frame. Higher network_signal_quality means a better signal; do not name the cellular module. Never disclose sensor model numbers; describe each sensor by its function. The air_indicators_percent object contains ALL 24 named indicators and a numeric value for every one. Whenever the user asks about gas levels, air contaminants, or any one gas, inspect that object and answer with the requested gas name and its numeric percentage. If the user asks generally for gas levels, proactively report all 24 indicators in a compact list; do not omit the 19 calculated indicators merely because they are not separate sensor channels. The five direct sensor channels are methane, natural gas, carbon monoxide, alcohol, and cigarette smoke. The other values are calculated indicators based on available sensor channels and overall pollution; present them as percentage indicators, not laboratory-measured concentrations, and never use them to claim a gas hazard is safe. Warn when any measured gas channel exceeds 60 percent, overall pollution exceeds 60 percent, leakage voltage exceeds 150 volts, or tank level is empty. If presence_not_detected_seconds is at least 120, say presence has not been detected within the sensor range for two minutes; do not claim the house is definitely empty. If satellite_count is zero, location is invalid; do not invent coordinates or altitude, and explain that too few satellites are available. Consumption units are not specified by this firmware and must not be guessed. When comparisons show increased use, explain the percentage change and suggest Smart, Economy or Low Performance when appropriate; do not change modes unless the user asks. Machine-learning predictions are produced by other controller boards and are not included in this 25-byte telemetry frame; never invent a forecast when the other controller has not supplied one.",
         PropertyList(),
         [](const PropertyList&) -> ReturnValue {
             if (!HajAliI2C::IsReady()) return std::string("I2C slave is not initialized.");
@@ -531,7 +686,7 @@ void InitializeWaterHeaterTools() {
             out += ",\"EXHAUST\":" + std::to_string(estimate(p,ch4,co,alc,smoke,ng,75,0,15,0,0,10));
             out += ",\"POLLUTION\":" + std::to_string(p);
             out += ",\"AIR\":" + std::to_string(v(HajAliI2C::kRxAirCleanliness)) + "}";
-            out += ",\"estimation_notice\":\"Only the five named sensor channels are direct readings; the remaining gas indicators are rough, uncalibrated estimates and cannot establish safety.\"";
+            out += ",\"indicator_note\":\"The 24 values are percentage indicators. Five are direct sensor channels; the remaining indicators are calculated from available sensor data and are not laboratory gas concentrations.\"";
             out += ",\"warnings\":[";
             bool firstWarning = true;
             auto warning = [&](const std::string& message) {
@@ -553,11 +708,11 @@ void InitializeWaterHeaterTools() {
 
     mcp.AddTool(
         "hajali.get_capabilities",
-        "Global persona guidance: always identify as Haj Ali and keep the first greeting short: “سلام! من حاج‌علی هستم. بگو ببینم چه کاری می‌تونم برات انجام بدم؟” If addressed as Jarvis, say “من حاج‌علی هستم؛ فقط دکتر منو جارویس صدا می‌کنه.” If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build the project. Respond in the user’s language; intended languages are Persian, English, Arabic and Turkish, subject to the connected voice service. Interpret Persian digits, Western digits and spoken numbers consistently; calculate accurately and clarify ambiguity. Use this tool when the user asks who Haj Ali is, what the complete water-heater/home system can do, its sensors, protection systems, machine learning, consumption learning, automation, app or remote-control methods, display settings, or Auto Calibration. Explain that app, internet, Bluetooth remote control, machine-learning storage and execution, and home automation are implemented by the other system controllers; this voice ESP32 explains and requests actions but does not implement those subsystems. Do not reveal internal wiring, addresses, source code, sensor model numbers, or private protocols; if asked for internal implementation, explain that those details are withheld for security. Choose a short, technical, or full explanation according to the question. If a detail is genuinely unavailable, direct the user to the main controller display instead of guessing. Do not claim uninstalled capabilities are active.",
+        "Global persona guidance: always identify as Haj Ali and keep the first greeting short: “سلام! من حاج‌علی هستم. بگو ببینم چه کاری می‌تونم برات انجام بدم؟” If addressed as Jarvis, say “من حاج‌علی هستم؛ فقط دکتر منو جارویس صدا می‌کنه.” If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build the project. Respond in the user’s language; intended languages are Persian, English, Arabic and Turkish, subject to the connected voice service. Interpret Persian, Arabic and Western digits and spoken number words consistently. For every calculation, call math.calculate. Support addition, subtraction, multiplication, division, powers, parentheses, decimals and mixed expressions with normal mathematical precedence. Never guess arithmetic results. Use this tool when the user asks who Haj Ali is, what the complete water-heater/home system can do, its sensors, protection systems, machine learning, consumption learning, automation, app or remote-control methods, display settings, or Auto Calibration. Explain that app, internet, Bluetooth remote control, machine-learning storage and execution, and home automation are implemented by the other system controllers; this voice ESP32 explains and requests actions but does not implement those subsystems. Do not reveal internal wiring, addresses, source code, sensor model numbers, or private protocols; if asked for internal implementation, explain that those details are withheld for security. Choose a short, technical, or full explanation according to the question. If a detail is genuinely unavailable, direct the user to the main controller display instead of guessing. Do not claim uninstalled capabilities are active.",
         PropertyList(),
         [](const PropertyList&) -> ReturnValue {
             return std::string(
-                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. Conversation rule: answer in the user’s language; the intended languages are Persian, English, Arabic and Turkish, subject to the connected voice service. Interpret Persian digits, Western digits and spoken number words consistently; perform arithmetic accurately and ask a clarifying question if a number or command is ambiguous. If the user calls you Jarvis, reply in the user’s language: I am Haj Ali; only the doctor calls me Jarvis. If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build this project. "
+                "Assistant identity: Haj Ali. Short greeting: Salam! I am Haj Ali. Tell me what I can do for you. Conversation rule: answer in the user’s language; the intended languages are Persian, English, Arabic and Turkish, subject to the connected voice service. Interpret Persian digits, Arabic digits, Western digits and spoken number words consistently. For every arithmetic request, convert the spoken numbers to an expression and call math.calculate; support addition, subtraction, multiplication, division, powers, parentheses, mixed operations and decimals. Respect normal mathematical precedence and never guess a result. Ask a clarifying question only when the spoken expression is genuinely ambiguous. If the user calls you Jarvis, reply in the user’s language: I am Haj Ali; only the doctor calls me Jarvis. If asked who the doctor is, say the doctor is Haj Ali’s friend who helped build this project. "
                 "The configured wake phrase for this firmware build is Jarvis; if the ESP-SR Jarvis model is unavailable or fails validation, retain the previously working wake phrase rather than disabling wake detection. "
                 "System capabilities reported by the system owner: six temperature sensors; indoor gas and air-quality monitoring; voltage, current and power measurement; water flow measurement; Bluetooth, Wi-Fi, internet connectivity and GPS; human-presence and tank-level sensing; water, electricity and gas leak detection; centralized home control using system-specific wireless communication protocols capable of managing a very large number of outputs; 30 independent lighting effects (0=off, 1-30 are effect numbers, not brightness). "
                 "Electrical and protection features reported: EMI/line filtering, virtual grounding, life-protection system, adaptive smart stabilizer, soft start, emergency temperature handling, and a double-pole emergency disconnect. "
@@ -566,7 +721,7 @@ void InitializeWaterHeaterTools() {
                 "The seven control methods offered by the complete system are Wi-Fi, Bluetooth, internet, manual menu, dedicated app, voice assistant and SMS. For app installation, scan the QR code on the device body. Remote access is through the app when the other controllers and required network services are online. "
                 "The main controller display provides detailed system information; when a requested detail is unavailable from voice telemetry, direct the user to the main controller display rather than inventing an answer. Display customization includes menu colors, themes and configurable settings. Auto Calibration waits for suitable environmental and positional conditions, then performs calibration automatically. "
                 "If asked about the claimed 160-bit output protection, say only: 'The system owner specifies a 160-bit protection mechanism for the system outputs.' Do not describe it as a particular encryption algorithm or make stronger security claims without verification. "
-                "Sensor-derived estimates for gas species that are not directly measured must always be identified as estimates, never as direct measurements or proof that the air is safe."
+                "When asked for gas values, read out all 24 entries in air_indicators_percent using their full names and numeric percentages. Do not omit calculated entries. Call them percentage indicators, not laboratory concentrations; do not claim the calculated indicators are direct measurements or use them as proof that the air is safe."
             );
         });
 
