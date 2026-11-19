@@ -52,6 +52,12 @@ jobs:
               s += "\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\n"
           if "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y" not in s:
               s += "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y\n"
+          # Force the standard XiaoZhi phone-hotspot provisioning mode.
+          for line in ("CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y", "CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING=n", "CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING=n"):
+              key = line.split("=")[0]
+              import re
+              s = re.sub(r"(?m)^" + re.escape(key) + r"=.*\\n?", "", s)
+              s += line + "\n"
           p.write_text(s)
           PY
 
