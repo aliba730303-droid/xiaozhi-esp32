@@ -1,5 +1,4 @@
-name: Build Haj Ali on upstream XiaoZhi main
-# Source pinned to upstream commit 831ffd14188553cc887408b75396ae38618538e0
+name: Build Haj Ali XiaoZhi v2.2.2 IDF 5.5.4
 
 on:
   workflow_dispatch:
@@ -14,20 +13,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: espressif/idf:release-v6.1
+      image: espressif/idf:release-v5.5.4
     steps:
       - name: Checkout Haj Ali overlay
         uses: actions/checkout@v4
 
-      - name: Get upstream XiaoZhi main
+      - name: Get upstream XiaoZhi v2.2.2
         shell: bash
         run: |
-          git clone https://github.com/78/xiaozhi-esp32.git upstream
-          cd upstream
-          git checkout 831ffd14188553cc887408b75396ae38618538e0
-          test "$(git rev-parse HEAD)" = "831ffd14188553cc887408b75396ae38618538e0"
+          git clone --branch v2.2.2 --depth 1 https://github.com/78/xiaozhi-esp32.git upstream
+          test "$(git -C upstream describe --tags --exact-match)" = "v2.2.2"
 
-      - name: Apply Haj Ali board files
+      - name: Apply Haj Ali board files and exact flash settings
         shell: bash
         run: |
           cp main/boards/bread-compact-wifi/compact_wifi_board.cc upstream/main/boards/bread-compact-wifi/
@@ -36,7 +33,6 @@ jobs:
           cp main/boards/bread-compact-wifi/water_heater_controller.h upstream/main/boards/bread-compact-wifi/
           cat > upstream/main/boards/bread-compact-wifi/config.json <<'EOF'
           {
-            "type": "bread-compact-wifi",
             "target": "esp32s3",
             "builds": [
               {
@@ -54,13 +50,13 @@ jobs:
           from pathlib import Path
           p = Path("upstream/sdkconfig.defaults.esp32s3")
           s = p.read_text()
-          s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y", "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
+          s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y",
+                        "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
           if "CONFIG_ESPTOOLPY_FLASHFREQ_80M=y" not in s:
-              s += "\\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\\n"
-          if "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y" not in s:
-              s += "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y\\n"
+              s += "\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\n"
           p.write_text(s)
           PY
+          grep -E 'FLASHSIZE_16MB|FLASHMODE_DIO|FLASHFREQ_80M' upstream/sdkconfig.defaults.esp32s3
 
       - name: Build Haj Ali firmware
         shell: bash
@@ -70,10 +66,22 @@ jobs:
           python scripts/build.py bread-compact-wifi --name bread-compact-wifi --language fa-IR --zip
           test -s build/merged-binary.bin
 
+      - name: Verify merged firmware
+        shell: bash
+        working-directory: upstream
+        run: |
+          ls -lh build/merged-binary.bin
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build/merged-binary.bin")
+          assert p.exists() and p.stat().st_size > 1000000
+          print("Verified merged binary:", p.stat().st_size, "bytes")
+          PY
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: Haj-Ali-XiaoZhi-main-IDF6.1-ESP32-S3-N16R8
+          name: Haj-Ali-XiaoZhi-v2.2.2-IDF5.5.4-ESP32-S3-N16R8
           path: |
             upstream/build/merged-binary.bin
             upstream/releases/*.zip
