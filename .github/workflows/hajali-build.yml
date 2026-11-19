@@ -1,4 +1,5 @@
 name: Build Haj Ali on upstream XiaoZhi main
+# Source pinned to upstream commit 831ffd14188553cc887408b75396ae38618538e0
 
 on:
   workflow_dispatch:
