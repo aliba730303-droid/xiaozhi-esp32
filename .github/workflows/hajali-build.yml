@@ -1,4 +1,4 @@
-name: Build Haj Ali on XiaoZhi v2.2.2
+name: Build Haj Ali on upstream XiaoZhi main
 
 on:
   workflow_dispatch:
@@ -13,19 +13,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: espressif/idf:v5.5.4
+      image: espressif/idf:release-v6.1
     steps:
       - name: Checkout Haj Ali overlay
         uses: actions/checkout@v4
 
-      - name: Get upstream XiaoZhi v2.2.2
+      - name: Get upstream XiaoZhi main
         shell: bash
         run: |
-          git clone --depth 1 --branch v2.2.2 https://github.com/78/xiaozhi-esp32.git upstream
+          git clone https://github.com/78/xiaozhi-esp32.git upstream
           cd upstream
-          test "$(git rev-parse HEAD)" = "37110a9d05a199efeff6ca3bb590427a354d0df2"
+          git checkout 831ffd14188553cc887408b75396ae38618538e0
+          test "$(git rev-parse HEAD)" = "831ffd14188553cc887408b75396ae38618538e0"
 
-      - name: Apply Haj Ali hardware and I2C overlay
+      - name: Apply Haj Ali board files
         shell: bash
         run: |
           cp main/boards/bread-compact-wifi/compact_wifi_board.cc upstream/main/boards/bread-compact-wifi/
@@ -34,11 +35,16 @@ jobs:
           cp main/boards/bread-compact-wifi/water_heater_controller.h upstream/main/boards/bread-compact-wifi/
           cat > upstream/main/boards/bread-compact-wifi/config.json <<'EOF'
           {
+            "type": "bread-compact-wifi",
             "target": "esp32s3",
             "builds": [
               {
                 "name": "bread-compact-wifi",
-                "sdkconfig_append": []
+                "sdkconfig_append": [
+                  "CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y",
+                  "CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING=n",
+                  "CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING=n"
+                ]
               }
             ]
           }
@@ -47,34 +53,27 @@ jobs:
           from pathlib import Path
           p = Path("upstream/sdkconfig.defaults.esp32s3")
           s = p.read_text()
-          s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y", "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
+          s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y", "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
           if "CONFIG_ESPTOOLPY_FLASHFREQ_80M=y" not in s:
-              s += "\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\n"
+              s += "\\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\\n"
           if "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y" not in s:
-              s += "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y\n"
-          # Force the standard XiaoZhi phone-hotspot provisioning mode.
-          for line in ("CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y", "CONFIG_USE_ACOUSTIC_WIFI_PROVISIONING=n", "CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING=n"):
-              key = line.split("=")[0]
-              import re
-              s = re.sub(r"(?m)^" + re.escape(key) + r"=.*\\n?", "", s)
-              s += line + "\n"
+              s += "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y\\n"
           p.write_text(s)
           PY
 
-      - name: Build firmware
+      - name: Build Haj Ali firmware
         shell: bash
         working-directory: upstream
         run: |
           . "$IDF_PATH/export.sh"
-          python scripts/release.py bread-compact-wifi --name bread-compact-wifi
+          python scripts/build.py bread-compact-wifi --name bread-compact-wifi --language fa-IR --zip
           test -s build/merged-binary.bin
-          test -s releases/v2.2.2_bread-compact-wifi.zip
 
-      - name: Upload Haj Ali firmware
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: Haj-Ali-XiaoZhi-v2.2.2-IDF-5.5.4-ESP32-S3-N16R8
+          name: Haj-Ali-XiaoZhi-main-IDF6.1-ESP32-S3-N16R8
           path: |
             upstream/build/merged-binary.bin
-            upstream/releases/v2.2.2_bread-compact-wifi.zip
+            upstream/releases/*.zip
           if-no-files-found: error
