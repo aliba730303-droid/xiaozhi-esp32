@@ -1,4 +1,5 @@
 name: Build Haj Ali XiaoZhi v2.2.2 IDF 5.5.4
+# Uses the upstream v2.2.2 scripts/release.py build entry point
 
 on:
   workflow_dispatch:
