@@ -63,7 +63,7 @@ jobs:
         working-directory: upstream
         run: |
           . "$IDF_PATH/export.sh"
-          python scripts/build.py bread-compact-wifi --name bread-compact-wifi --language fa-IR --zip
+          python scripts/release.py bread-compact-wifi --name bread-compact-wifi
           test -s build/merged-binary.bin
 
       - name: Verify merged firmware
