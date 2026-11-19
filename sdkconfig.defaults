@@ -76,3 +76,8 @@ CONFIG_LV_USE_WIN=n
 
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
+
+# Match the verified ESP32-S3 N16R8 firmware flash settings:
+# DIO mode, 80 MHz, 16 MB (flash size is already configured above).
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
