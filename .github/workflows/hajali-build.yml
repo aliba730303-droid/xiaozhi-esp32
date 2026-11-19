@@ -50,6 +50,8 @@ jobs:
           s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y", "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
           if "CONFIG_ESPTOOLPY_FLASHFREQ_80M=y" not in s:
               s += "\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\n"
+          if "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y" not in s:
+              s += "CONFIG_I2C_ENABLE_SLAVE_DRIVER_VERSION_2=y\n"
           p.write_text(s)
           PY
 
