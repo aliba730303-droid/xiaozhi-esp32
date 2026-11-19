@@ -1,31 +1,72 @@
-
-name: Build Haj Ali ESP32-S3
+name: Build Haj Ali on XiaoZhi v2.2.2
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - hajali/water-heater-i2c
-      - hajali-2
+      - hajali-v2.2.2-idf5.5.4
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: espressif/idf:v6.1
-
+      image: espressif/idf:v5.5.4
     steps:
-      - name: Checkout
+      - name: Checkout Haj Ali overlay
         uses: actions/checkout@v4
+
+      - name: Get upstream XiaoZhi v2.2.2
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v2.2.2 https://github.com/78/xiaozhi-esp32.git upstream
+          cd upstream
+          test "$(git rev-parse HEAD)" = "37110a9d05a199efeff6ca3bb590427a354d0df2"
+
+      - name: Apply Haj Ali hardware and I2C overlay
+        shell: bash
+        run: |
+          cp main/boards/bread-compact-wifi/compact_wifi_board.cc upstream/main/boards/bread-compact-wifi/
+          cp main/boards/bread-compact-wifi/config.h upstream/main/boards/bread-compact-wifi/
+          cp main/boards/bread-compact-wifi/water_heater_controller.cc upstream/main/boards/bread-compact-wifi/
+          cp main/boards/bread-compact-wifi/water_heater_controller.h upstream/main/boards/bread-compact-wifi/
+          cat > upstream/main/boards/bread-compact-wifi/config.json <<'EOF'
+          {
+            "target": "esp32s3",
+            "builds": [
+              {
+                "name": "bread-compact-wifi",
+                "sdkconfig_append": []
+              }
+            ]
+          }
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("upstream/sdkconfig.defaults.esp32s3")
+          s = p.read_text()
+          s = s.replace("CONFIG_ESPTOOLPY_FLASHMODE_QIO=y", "CONFIG_ESPTOOLPY_FLASHMODE_QIO=n\\nCONFIG_ESPTOOLPY_FLASHMODE_DIO=y")
+          if "CONFIG_ESPTOOLPY_FLASHFREQ_80M=y" not in s:
+              s += "\\nCONFIG_ESPTOOLPY_FLASHFREQ_80M=y\\n"
+          p.write_text(s)
+          PY
 
       - name: Build firmware
         shell: bash
+        working-directory: upstream
         run: |
-          . $IDF_PATH/export.sh
-          python scripts/build.py bread-compact-wifi --name bread-compact-wifi --language en-US --wake-word wn9_jarvis_tts
+          . "$IDF_PATH/export.sh"
+          python scripts/release.py bread-compact-wifi --name bread-compact-wifi
+          test -s build/merged-binary.bin
+          test -s releases/v2.2.2_bread-compact-wifi.zip
 
-      - name: Upload firmware
+      - name: Upload Haj Ali firmware
         uses: actions/upload-artifact@v4
         with:
-          name: hajali-2-firmware
-          path: build/merged-binary.bin
+          name: Haj-Ali-XiaoZhi-v2.2.2-IDF-5.5.4-ESP32-S3-N16R8
+          path: |
+            upstream/build/merged-binary.bin
+            upstream/releases/v2.2.2_bread-compact-wifi.zip
+          if-no-files-found: error
